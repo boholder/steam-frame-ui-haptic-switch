@@ -64,19 +64,35 @@
       ' fill="none" width="100%" height="100%">' + inner + '</svg>';
   }
 
+  /* a Steam Frame-style controller with vibration waves */
   var ICON_HAPTIC = svg(
-    '<g fill="none" stroke="currentColor" stroke-width="2.4"' +
+    '<g transform="translate(4.05 5.25) scale(0.75)"' +
+    ' fill="none" stroke="currentColor" stroke-width="1.5"' +
     ' stroke-linecap="round" stroke-linejoin="round">' +
-    '<path d="M12.5 17.5v-6a2 2 0 0 1 4 0v5"/>' +
-    '<path d="M16.5 15v-1.5a2 2 0 0 1 4 0V16"/>' +
-    '<path d="M20.5 16v-1a2 2 0 0 1 4 0v8.5a7 7 0 0 1-7 7h-1.2a6 6 0 0' +
-    ' 1-4.6-2.2l-4-4.9a1.9 1.9 0 0 1 2.8-2.5l2 1.8"/>' +
+    /* Grip trigger */
+    '<path stroke-width="1.3"' +
+    ' d="M11.8 14.9C10.3 16.1 8.8 17.9 9.25 19.2Q9.45 20 10.9 21"/>' +
+    /* Circular head and straight grip */
+    '<path stroke-width="2"' +
+    ' d="M14.5585 17.916A8.8 8.8 0 1 1 21.9426 19.5829' +
+    'L12.2627 29.2627A3.2 3.2 0 0 1 7.7373 24.7373Z"/>' +
+    /* Thumbstick */
+    '<circle cx="16.5" cy="8.9" r="2.4"/>' +
+    /* Four solid face buttons */
+    '<g fill="currentColor" stroke="none">' +
+    '<circle cx="21.4" cy="10" r="1.25"/>' +
+    '<circle cx="25" cy="10" r="1.25"/>' +
+    '<circle cx="21.4" cy="13.6" r="1.25"/>' +
+    '<circle cx="25" cy="13.6" r="1.25"/>' +
     '</g>' +
-    '<g fill="none" stroke="currentColor" stroke-width="2.2"' +
-    ' stroke-linecap="round">' +
-    '<path d="M28.5 12.5a6 6 0 0 1 0 6"/>' +
-    '<path d="M31.5 10a10 10 0 0 1 0 11"/>' +
-    '</g>');
+    /* Left vibration waves */
+    '<path d="M7 6c-2 2-3 5-2 8"/>' +
+    '<path d="M3 3C-.5 6.5-2 11-1 15"/>' +
+    /* Right vibration waves */
+    '<path d="M32 16c1 3 0 6-2 8"/>' +
+    '<path d="M36 13c3 5 2 11-2 15"/>' +
+    '</g>'
+  );
 
   /* ------------------------------------------------------------------ */
   /* DOM discovery                                                       */
