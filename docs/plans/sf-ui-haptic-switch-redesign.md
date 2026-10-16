@@ -22,8 +22,8 @@
 ## 2. 现状（改动前）
 
 - 常驻 root 服务只连 `barpopup` 一个 target，注入一段 JS（UI + haptic 包装合一），持 `state.json`、0.5s 推送、`addBinding` 收点击。
-- 仓库根：`device/`、`docs/`、`scripts/`、`install.sh`、`uninstall.sh`、`README.md`、`sf.ps1`、`AGENTS.md`、`.gitignore`。
-  - `device/`：`sf_haptic_switch.js`、`sf_haptic_switch_daemon.py`、`sf-haptic-switchd.service`、`技术说明.md`。
+- 仓库根：`src/`、`docs/`、`scripts/`、`install.sh`、`uninstall.sh`、`README.md`、`sf.ps1`、`AGENTS.md`、`.gitignore`。
+  - `src/`：`sf_haptic_switch.js`、`sf_haptic_switch_daemon.py`、`sf-haptic-switchd.service`、`技术说明.md`。
 - `diagnose.sh` 与 `VERSION` 当前**不在**仓库。
 
 ---
@@ -125,7 +125,7 @@ sf-ui-haptic-switch.service (Type=oneshot, User=steamos)
 - `diagnose.sh`：当前不存在，本计划不重建。
 
 ### 7.5 文档 / 其它
-- `README.md`、`device/技术说明.md`：按新架构重写（`:8080`、timer、localStorage、双脚本）。
+- `README.md`、`src/技术说明.md`：按新架构重写（`:8080`、timer、localStorage、双脚本）。
 - `docs/research/haptic-switch-implementation.md`：标注「已过时」。
 - `.gitignore`：移除 `state.json` 条目。
 

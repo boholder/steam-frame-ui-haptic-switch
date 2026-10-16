@@ -4,7 +4,7 @@
 按下开关时发生的确切事件序列。
 
 所有路径都相对于仓库根目录。每一条结论
-都以 `path:line` 标注来源。前端、守护进程和 systemd 单元都位于 `device/` 下。
+都以 `path:line` 标注来源。前端、守护进程和 systemd 单元都位于 `src/` 下。
 
 ---
 
@@ -15,21 +15,21 @@
 
 - 一个 **root systemd 守护进程**（`sf_haptic_switch_daemon`）通过 Chrome DevTools 协议
   （CDP）连上已在运行的 GamepadUI **CEF 页面**，地址 `127.0.0.1:8080`
-  （`device/sf_haptic_switch_daemon.py:45`）。
+  （`src/sf_haptic_switch_daemon.py:45`）。
 -   它通过 `Runtime.evaluate` 把一个 **纯 ES5 JS 文件**（`sf_haptic_switch.js`）注入
   快速访问菜单的 popup target `valve.steam.gamepadui.barpopup`
-  （`device/sf_haptic_switch_daemon.py:46`, `:337`）。
+  （`src/sf_haptic_switch_daemon.py:46`, `:337`）。
 - 注入的 JS 从实时 DOM 里 **克隆一行原生开关**，改名为 `Controller UI Haptic`，
-  追加到设置页 body（`device/sf_haptic_switch.js:382-397`, `:446-478`）。
+  追加到设置页 body（`src/sf_haptic_switch.js:382-397`, `:446-478`）。
 - JS 还会 **包装 `VRHTML.VROverlay.TriggerOverlayHapticEffect`**，在开关关闭时
-  吞掉 `ButtonEnter`/`ButtonLeave` 两类效果（`device/sf_haptic_switch.js:411-430`）。
+  吞掉 `ButtonEnter`/`ButtonLeave` 两类效果（`src/sf_haptic_switch.js:411-430`）。
 - UI → 守护进程的消息通过一个名为 `__sfHapticSend` 的 CDP **binding** 回传
-  （`device/sf_haptic_switch_daemon.py:47`, `:314`）；守护进程 → UI 的状态则每 0.5 秒通过
+  （`src/sf_haptic_switch_daemon.py:47`, `:314`）；守护进程 → UI 的状态则每 0.5 秒通过
   评估 `window.__SF_HAPTIC__.setState({...})` 推送一次
-  （`device/sf_haptic_switch_daemon.py:49`, `:346-356`）。
+  （`src/sf_haptic_switch_daemon.py:49`, `:346-356`）。
 
 持久化状态文件是 `state.json`，写在守护进程旁边
-（`device/sf_haptic_switch_daemon.py:51-52`）。
+（`src/sf_haptic_switch_daemon.py:51-52`）。
 
 **关键架构点：** 守护进程**并不**抑制震动。抑制完全在页面内、在注入的 JS 里。
 守护进程只持有*持久化*的开/关值，并把它重复推送给页面。
@@ -40,34 +40,34 @@
 
 | 部件 | 文件 | 作用 |
 | --- | --- | --- |
-| 前端（注入） | `device/sf_haptic_switch.js` | 建开关、渲染状态、把点击回传、包装 haptic API |
-| 守护进程（root） | `device/sf_haptic_switch_daemon.py` | 通过 CDP 注入 JS、持久化开/关值、推送快照 |
-| systemd 单元 | `device/sf-haptic-switchd.service` | 让守护进程常驻（`Restart=always`） |
+| 前端（注入） | `src/sf_haptic_switch.js` | 建开关、渲染状态、把点击回传、包装 haptic API |
+| 守护进程（root） | `src/sf_haptic_switch_daemon.py` | 通过 CDP 注入 JS、持久化开/关值、推送快照 |
+| systemd 单元 | `src/sf-haptic-switchd.service` | 让守护进程常驻（`Restart=always`） |
 | 持久化状态 | `state.json`（运行期，已被 git 忽略） | `{"enabled": true|false}` |
 
 ### 连接细节
 
 - **CEF / CDP 端点：** `CDP_HTTP = "http://127.0.0.1:8080"`
-  （`device/sf_haptic_switch_daemon.py:45`）。
+  （`src/sf_haptic_switch_daemon.py:45`）。
 - **Target 匹配：** `TARGET_MATCH = "valve.steam.gamepadui.barpopup"`
-  （`device/sf_haptic_switch_daemon.py:46`）。`find_target()` 拉取 `…/json/list`，匹配
+  （`src/sf_haptic_switch_daemon.py:46`）。`find_target()` 拉取 `…/json/list`，匹配
   `title + url` 含该字符串**且** `type == "page"`，返回该 target 的
-  `webSocketDebuggerUrl`（`device/sf_haptic_switch_daemon.py:222-232`）。
-- **Binding 名：** `BINDING_NAME = "__sfHapticSend"`（`device/sf_haptic_switch_daemon.py:47`），
-  通过 `Runtime.addBinding` 注册（`device/sf_haptic_switch_daemon.py:314`）。
-- **推送节奏：** `POLL_INTERVAL = 0.5` 秒（`device/sf_haptic_switch_daemon.py:49`）。
+  `webSocketDebuggerUrl`（`src/sf_haptic_switch_daemon.py:222-232`）。
+- **Binding 名：** `BINDING_NAME = "__sfHapticSend"`（`src/sf_haptic_switch_daemon.py:47`），
+  通过 `Runtime.addBinding` 注册（`src/sf_haptic_switch_daemon.py:314`）。
+- **推送节奏：** `POLL_INTERVAL = 0.5` 秒（`src/sf_haptic_switch_daemon.py:49`）。
 - **前端全局对象：** `window.__SF_HAPTIC__`，暴露 `setState`、`getState`、
-  `setEnabled`、`sync`、`ping`、`teardown`（`device/sf_haptic_switch.js:592-628`）。
+  `setEnabled`、`sync`、`ping`、`teardown`（`src/sf_haptic_switch.js:592-628`）。
 - **行 id / 标签：** `ROW_ID = 'sf_haptic_row'`、`LABEL = 'Controller UI Haptic'`
-  （`device/sf_haptic_switch.js:24-25`）。
+  （`src/sf_haptic_switch.js:24-25`）。
 
 守护进程需要 root 只是为了 systemd 能可靠地启动它；它不在自己目录之外写任何东西
-（`device/sf_haptic_switch_daemon.py:12-14`）。中间层是一个**手写的 RFC6455 WebSocket 客户端**，
-因为设备上没有 Python websocket 库（`device/sf_haptic_switch_daemon.py:16-17`, `:67-169`）；
-发送的帧始终带掩码（`device/sf_haptic_switch_daemon.py:122-125`）。
+（`src/sf_haptic_switch_daemon.py:12-14`）。中间层是一个**手写的 RFC6455 WebSocket 客户端**，
+因为设备上没有 Python websocket 库（`src/sf_haptic_switch_daemon.py:16-17`, `:67-169`）；
+发送的帧始终带掩码（`src/sf_haptic_switch_daemon.py:122-125`）。
 
 单元运行 `/usr/bin/python3 …/sf_haptic_switch_daemon.py --js …/sf_haptic_switch.js`，带
-`Restart=always`、`RestartSec=3`（`device/sf-haptic-switchd.service:9-11`）。
+`Restart=always`、`RestartSec=3`（`src/sf-haptic-switchd.service:9-11`）。
 
 ---
 
@@ -75,7 +75,7 @@
 
 ### 1. 连接
 
-每轮循环守护进程调用 `connect()`（`device/sf_haptic_switch_daemon.py:299-321`）：
+每轮循环守护进程调用 `connect()`（`src/sf_haptic_switch_daemon.py:299-321`）：
 
 1. `find_target()` —— 定位 `barpopup` 页面的 webSocket url（`:300`）。
 2. 若 url 未变则复用现有 socket（`:303-304`）；否则关闭并重建（`:305-310`）。
@@ -84,13 +84,13 @@
    存在 `window.__sfHapticSend(...)`。
 
 循环会一直重试：若 `connect()` 失败，sleep 1.0 秒后继续
-（`device/sf_haptic_switch_daemon.py:388-390`）。
+（`src/sf_haptic_switch_daemon.py:388-390`）。
 
 ### 2. 版本标记 + 注入
 
 `Daemon.__init__` 读取 JS，计算 **SHA-1 内容哈希**（前 12 个十六进制字符）作为
 `self.build`，并追加一行结尾代码把 `window.__SF_HAPTIC__.build` 打上标记
-（`device/sf_haptic_switch_daemon.py:287-292`）：
+（`src/sf_haptic_switch_daemon.py:287-292`）：
 
 ```python
 self.build = hashlib.sha1(self.js.encode("utf-8")).hexdigest()[:12]
@@ -98,16 +98,16 @@ self.code = self.js + (
     '\n;try{window.__SF_HAPTIC__.build="%s";}catch(e){}\n' % self.build)
 ```
 
-`inject()`（`device/sf_haptic_switch_daemon.py:323-340`）探测
+`inject()`（`src/sf_haptic_switch_daemon.py:323-340`）探测
 `(window.__SF_HAPTIC__ && window.__SF_HAPTIC__.build) || ''`；若已等于 `self.build`
 就跳过（`:327`, `:334`），否则评估整个脚本（`:337`）。因为页面 reload 会清掉
 `window.__SF_HAPTIC__`，这个标记本身就是「需要（重新）注入」的信号。注入是幂等的：
-脚本的第一件事就是在存在旧实例时执行 `prev.teardown()`（`device/sf_haptic_switch.js:20-22`）。
+脚本的第一件事就是在存在旧实例时执行 `prev.teardown()`（`src/sf_haptic_switch.js:20-22`）。
 
 ### 3. 找到设置页 body
 
 IIFE 的启动顺序：接管 `window.__SF_HAPTIC__`、定义辅助函数、加载缓存模板、
-`hookToggle()`、`startObserver()`、`sync()`（`device/sf_haptic_switch.js:628-639`）。
+`hookToggle()`、`startObserver()`、`sync()`（`src/sf_haptic_switch.js:628-639`）。
 
 DOM 发现：
 
@@ -174,7 +174,7 @@ body——Valve 只在某个标签页被选中时才渲染它的行（`grabTempl
 到守护进程的往返——抑制是本地、立即施加的；守护进程只负责持久化。
 
 1. **启动接线。** 注入时 `hookToggle()` 注册 window 级、**捕获阶段**的监听器：
-   `pointerdown` 和 `click`（`device/sf_haptic_switch.js:536-537`），以及一个针对
+   `pointerdown` 和 `click`（`src/sf_haptic_switch.js:536-537`），以及一个针对
    `Enter`/`Space`/`Spacebar` 的匿名 `keydown` 监听器（`:538-541`）。捕获阶段正是
    让该处理器先于 React 自己的委托运行的原因。
 
@@ -219,7 +219,7 @@ body——Valve 只在某个标签页被选中时才渲染它的行（`grabTempl
      return original(handle, effect);
    }
    ```
-   （`device/sf_haptic_switch.js:417-423`）
+   （`src/sf_haptic_switch.js:417-423`）
 
    因为第 7 步已经把 `state.enabled = false`，紧接着的
    `TriggerOverlayHapticEffect(handle, ButtonEnter=1 | ButtonLeave=2)` 调用返回
@@ -227,7 +227,7 @@ body——Valve 只在某个标签页被选中时才渲染它的行（`grabTempl
 
 10. **守护进程收到命令。** `window.__sfHapticSend(...)` 触发一个
     `Runtime.bindingCalled` 事件。在守护进程循环里，每 0.5 秒 `push()` 会运行
-    `handle_commands()`（`device/sf_haptic_switch_daemon.py:356`）。`handle_commands`
+    `handle_commands()`（`src/sf_haptic_switch_daemon.py:356`）。`handle_commands`
     （`:358-371`）排空排队的 CDP 事件，只保留
     `params.name === "__sfHapticSend"` 的 `Runtime.bindingCalled`（`:360`, `:363`），
     JSON 解析 `payload`（`:365-367`），并调用 `execute(msg)`（`:371`）。
@@ -249,7 +249,7 @@ body——Valve 只在某个标签页被选中时才渲染它的行（`grabTempl
     （`:349-351`）。注意推送的值取自守护进程的 `HapticSwitch.enabled`，即第 12 步
     刚持久化的值。
 
-15. **前端 `setState` 带回显抑制**（`device/sf_haptic_switch.js:594-608`）：对
+15. **前端 `setState` 带回显抑制**（`src/sf_haptic_switch.js:594-608`）：对
     `enabled` 键，若推送值与最近的 pending 翻转**不一致**且仍在 `PENDING_MS`
     （2500 毫秒，`:45`）内，则跳过该键（`:600-602`），以免开关肉眼可见地弹回。
     一旦守护进程的值与 pending 值一致，`pendingEnabled` 被清空、值被赋值
@@ -263,7 +263,7 @@ body——Valve 只在某个标签页被选中时才渲染它的行（`grabTempl
 
 ### CLI 路径（绕过 UI）
 
-`main()` 还支持 `--status`、`--on`、`--off`（`device/sf_haptic_switch_daemon.py:428-443`）：
+`main()` 还支持 `--status`、`--on`、`--off`（`src/sf_haptic_switch_daemon.py:428-443`）：
 它们构造一个 `HapticSwitch`、调用 `set_enabled` 并打印 JSON。它们会写
 `state.json`，但不直接碰页面；运行中的守护进程会在下次推送时取到新值。
 
@@ -274,13 +274,13 @@ body——Valve 只在某个标签页被选中时才渲染它的行（`grabTempl
 唯一关闭震动的，就是页面内对 `VRHTML.VROverlay.TriggerOverlayHapticEffect` 的包装。
 
 - **包装什么：** `overlayApi()` 返回 `window.VRHTML.VROverlay`
-  （`device/sf_haptic_switch.js:403-407`）；`applyHapticWrap()` 在
+  （`src/sf_haptic_switch.js:403-407`）；`applyHapticWrap()` 在
   `ov.TriggerOverlayHapticEffect` 是函数时包装它（`:413-414`），把原函数绑定为
   `original = fn.bind(ov)`（`:416`）。
 - **效果编号：** `EFFECT_BUTTON_ENTER = 1`、`EFFECT_BUTTON_LEAVE = 2`
   （`:29-31`）。与头注释里的 `EOverlayHapticEffect` 枚举一致：
   `None=0, ButtonEnter=1, ButtonLeave=2, Snap=3, Sliding=4, SlidingEdge=5`
-  （`:9-10`, `device/技术说明.md:63-66`）。
+  （`:9-10`, `src/技术说明.md:63-66`）。
 - **关闭时的行为：** 当 `state.enabled` 为 false 时，对
   `ButtonEnter`/`ButtonLeave` 返回 `0`（吞掉效果）（`:418-420`）。
 - **打开时的行为：** 调用绑定的原函数并返回其结果（`:422`）。滑块
@@ -291,31 +291,31 @@ body——Valve 只在某个标签页被选中时才渲染它的行（`grabTempl
   `applyHapticWrap()`，靠该标志避免重复包装（`:559`）。
 - **还原：** `restoreHaptic()`（`:432-440`）把 `fn.__sfHapticOriginal` 放回
   `VRHTML.VROverlay.TriggerOverlayHapticEffect`，由 `teardown()` 调用（`:622`）。
-  守护进程在关闭时触发 teardown（`device/sf_haptic_switch_daemon.py:401-408`），
+  守护进程在关闭时触发 teardown（`src/sf_haptic_switch_daemon.py:401-408`），
   `uninstall.sh` 停服务从而让 teardown 运行（`uninstall.sh:26-30`）。
 
 **重要局限：** `TriggerOverlayHapticEffect(handle, effect)` 接收的是**预设效果编号，
 不是幅度**。所以这一层只能抑制/替换/限频效果；无法缩放幅度
-（`device/技术说明.md:71-73`）。
+（`src/技术说明.md:71-73`）。
 
 ---
 
 ## 状态语义与持久化
 
-- **默认值：** 页面（`device/sf_haptic_switch.js:33`）和守护进程
-  （`device/sf_haptic_switch_daemon.py:244`）中都是 `enabled = true`。默认 = 原生行为。
+- **默认值：** 页面（`src/sf_haptic_switch.js:33`）和守护进程
+  （`src/sf_haptic_switch_daemon.py:244`）中都是 `enabled = true`。默认 = 原生行为。
 - **存哪里：** 守护进程旁的 `state.json`（`STATE_FILE`,
-  `device/sf_haptic_switch_daemon.py:51-52`）；格式 `{"enabled": bool}`（`:263`）。
+  `src/sf_haptic_switch_daemon.py:51-52`）；格式 `{"enabled": bool}`（`:263`）。
   它已被 git 忽略（`.gitignore:15`）。
 - **重启时：** `HapticSwitch._load()` 读取 `state.json` 还原值
-  （`device/sf_haptic_switch_daemon.py:247-257`）；`FileNotFoundError` 保留默认值
+  （`src/sf_haptic_switch_daemon.py:247-257`）；`FileNotFoundError` 保留默认值
   （`:254-255`）。因为页面是全新重建的，包装器会依据守护进程在首次 `setState`
   时推送的值开始门控。
 - **只读安装：** `_save()` 捕获写错误、只记日志（`:265-268`），所以插件仍能工作；
-  只是重启后状态重置回 `true`（`device/技术说明.md:77-79`）。
+  只是重启后状态重置回 `true`（`src/技术说明.md:77-79`）。
 - **只有守护进程持有权威值**，且每 0.5 秒推回页面一次；前端用
   `pendingEnabled`/`PENDING_MS`（2500 毫秒）在改动在途期间扛过回显
-  （`device/sf_haptic_switch.js:43-46`, `:594-608`）。
+  （`src/sf_haptic_switch.js:43-46`, `:594-608`）。
 
 ---
 
@@ -323,20 +323,20 @@ body——Valve 只在某个标签页被选中时才渲染它的行（`grabTempl
 
 ### 已验证（在本机对工作树运行过）
 
-- **Python 语法：** `python -m py_compile device/sf_haptic_switch_daemon.py` → OK。
-- **JS 语法：** `esprima.parseScript(device/sf_haptic_switch.js)` → OK（esprima 4.0.1）。
+- **Python 语法：** `python -m py_compile src/sf_haptic_switch_daemon.py` → OK。
+- **JS 语法：** `esprima.parseScript(src/sf_haptic_switch.js)` → OK（esprima 4.0.1）。
 - **Shell 语法：** `bash -n install.sh`、`bash -n uninstall.sh`、
   `bash -n diagnose.sh` → 全部 OK。
 - **跨文件一致性：** binding 名、target 字符串、效果编号、`ROW_ID`、
   `CACHE_KEY`/`BODY_KEY`、`state.json` 形状、`window.__SF_HAPTIC__` 的 API 名，在
-  `device/sf_haptic_switch.js` 与 `device/sf_haptic_switch_daemon.py` 之间全部一致。
+  `src/sf_haptic_switch.js` 与 `src/sf_haptic_switch_daemon.py` 之间全部一致。
 
 ### 假设 / 未在设备上验证
 
 以下全部来自代码和注释，而非真机 Steam Frame。
 
 1. **hover 震动究竟在哪里发出 —— 最大的未决问题。**
-   插件只注入 GamepadUI 的快速访问菜单 popup `barpopup`（`device/sf_haptic_switch_daemon.py:46`），
+   插件只注入 GamepadUI 的快速访问菜单 popup `barpopup`（`src/sf_haptic_switch_daemon.py:46`），
    并**在该页面内**包装 `VRHTML.VROverlay`。此前的调研笔记
    （`ref/我想修改 …可以.md:625-712`, 尤见 `:627`, `:637`, `:677-683`）结论是：
    Dashboard 的 hover 震动由**原生 Dashboard 页面 `systemui`** 发出
@@ -349,12 +349,12 @@ body——Valve 只在某个标签页被选中时才渲染它的行（`grabTempl
    指向相反方向。**未解决；必须在设备上实测。**
 
 2. **效果编号假设。** `ButtonEnter=1`/`ButtonLeave=2` 在代码注释
-   （`device/sf_haptic_switch.js:9-10`）和技术文档（`device/技术说明.md:63-66`）里被
+   （`src/sf_haptic_switch.js:9-10`）和技术文档（`src/技术说明.md:63-66`）里被
    断言，调研笔记（`ref/…可以.md:663-672`）也佐证，但本仓库未对照发布版 SteamVR
    bundle 确认。
 
 3. **设置页 body 探测是启发式。** 「控件最多」投票加 `quickaccess_content_4` 加权
-   （`device/sf_haptic_switch.js:126-152`）以及「控件数 ≥ 2」阈值，都是在未公开的
+   （`src/sf_haptic_switch.js:126-152`）以及「控件数 ≥ 2」阈值，都是在未公开的
    React DOM 上的启发式。若 Valve 改名 `#QuickAccess-Menu`、`[role="tablist"]`、
    `[id^="quickaccess_content_"]` 或不再用 `[role="checkbox"]`，探测即失效。
    没有设备端证据表明 `_4` 后缀稳定。
@@ -368,7 +368,7 @@ body——Valve 只在某个标签页被选中时才渲染它的行（`grabTempl
    却什么都不做（与第 1 点相关）。
 
 6. **keydown 监听器泄漏（已观察到，未在设备上测）。** `hookToggle()` 在 `cleanups`
-   里只移除了 `pointerdown` 和 `click`（`device/sf_haptic_switch.js:542-545`）；匿名
+   里只移除了 `pointerdown` 和 `click`（`src/sf_haptic_switch.js:542-545`）；匿名
    `keydown` 监听器（`:538-541`）从未被移除。由于每次（重新）注入在
    `prev.teardown()` 后都会重跑 `hookToggle()`（`:20-22`, `:635`），陈旧的 keydown
    监听器会累积。`lastFlip` 的 250 毫秒守卫是每个闭包各自的、非共享，所以一次按键

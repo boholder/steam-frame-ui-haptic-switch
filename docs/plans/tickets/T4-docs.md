@@ -6,7 +6,7 @@
 
 ## 范围
 
-- `README.md`、`device/技术说明.md`：按新架构重写（仅 `:8080`、timer + oneshot、localStorage、双脚本 gate/ui）。
+- `README.md`、`src/技术说明.md`：按新架构重写（仅 `:8080`、timer + oneshot、localStorage、双脚本 gate/ui）。
 - `docs/research/haptic-switch-implementation.md`：标注「已过时（旧单页守护进程 + `VRHTML` 假设）」。
 - `.gitignore`：移除 `state.json`（不再落盘）。
 - `sf.ps1`：不变。

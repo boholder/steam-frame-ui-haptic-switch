@@ -6,7 +6,7 @@
 
 ## 范围
 
-文件：`device/sf_haptic_switch_daemon.py` → **`device/sf_ui_haptic_switch_inject.py`**（改名，折进本 ticket）。
+文件：`src/sf_haptic_switch_daemon.py` → **`src/sf_ui_haptic_switch_inject.py`**（改名，折进本 ticket）。
 
 一次性执行，每次：
 

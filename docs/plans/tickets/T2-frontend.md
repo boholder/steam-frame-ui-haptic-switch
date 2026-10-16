@@ -10,15 +10,15 @@
 
 ## 范围
 
-- 新增 **`device/sf_ui_haptic_switch_gate.js`**：
+- 新增 **`src/sf_ui_haptic_switch_gate.js`**：
   - 包 `window.SteamClient.OpenVR.TriggerOverlayHapticEffect`（存在才包，缺失即 no-op；`:8080` 无 `VRHTML`）；
   - **调用时**读 `localStorage.getItem('sf_ui_haptic_switch')`（`"0"` = 关；无值 = 开）；
   - 幂等守卫 + `restoreHaptic`。
-- 新增 **`device/sf_ui_haptic_switch_ui.js`**：
+- 新增 **`src/sf_ui_haptic_switch_ui.js`**：
   - 只在 `barpopup` 建开关（克隆原生行、`MutationObserver` 自愈、`sessionStorage` 模板缓存）；
   - 点按时写 `localStorage.setItem('sf_ui_haptic_switch', '0'|'1')`；
   - 初始化从 `localStorage` 读态渲染；**无 binding、无 pending/echo**。
-- 删除 `device/sf_haptic_switch.js`；全局名 → `window.__SF_UI_HAPTIC_SWITCH__`；行 id/CSS id/缓存键 → 新前缀。
+- 删除 `src/sf_haptic_switch.js`；全局名 → `window.__SF_UI_HAPTIC_SWITCH__`；行 id/CSS id/缓存键 → 新前缀。
 
 ## 验收标准
 
