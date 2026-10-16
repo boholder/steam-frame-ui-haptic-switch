@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodically inject the Steam Frame "Controller UI Haptic" switch
+
+[Timer]
+OnBootSec=15s
+OnUnitInactiveSec=3s
+AccuracySec=1s
+Unit=sf-ui-haptic-switch.service
+
+[Install]
+WantedBy=timers.target

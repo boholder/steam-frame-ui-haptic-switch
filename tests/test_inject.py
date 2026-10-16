@@ -88,5 +88,33 @@ class RunTests(unittest.TestCase):
         self.assertEqual(inj.run(Boom(), [("ws://p", ["gate"])], {"gate": "G"}), 0)
 
 
+class TeardownTests(unittest.TestCase):
+    def test_expr_touches_both_slots_and_the_namespace(self):
+        e = inj.TEARDOWN_EXPR
+        self.assertIn("__SF_UI_HAPTIC_SWITCH__", e)
+        self.assertIn(".ui.teardown", e)
+        self.assertIn(".gate.teardown", e)
+
+    def test_counts_targets(self):
+        class Ok:
+            def __init__(self):
+                self.n = 0
+
+            def evaluate(self, ws_url, expr, timeout=10.0):
+                self.n += 1
+
+        t = Ok()
+        plan = [("ws://a", ["gate"]), ("ws://b", ["gate", "ui"])]
+        self.assertEqual(inj.teardown_all(t, plan), 2)
+        self.assertEqual(t.n, 2)
+
+    def test_isolates_errors(self):
+        class Boom:
+            def evaluate(self, ws_url, expr, timeout=10.0):
+                raise RuntimeError("gone")
+
+        self.assertEqual(inj.teardown_all(Boom(), [("ws://p", ["gate"])]), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

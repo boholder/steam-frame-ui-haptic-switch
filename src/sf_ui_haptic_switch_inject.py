@@ -111,6 +111,26 @@ def build_plan(targets):
     return plan
 
 
+TEARDOWN_EXPR = (
+    "(function(){try{var n=window.%s;if(n){"
+    "if(n.ui&&n.ui.teardown){n.ui.teardown();}"
+    "if(n.gate&&n.gate.teardown){n.gate.teardown();}}"
+    "delete window.%s;}catch(e){}})()" % (GLOBAL, GLOBAL)
+)
+
+
+def teardown_all(transport, plan):
+    """Best-effort removal of the injected UI from every planned target."""
+    done = 0
+    for ws_url, _slots in plan:
+        try:
+            transport.evaluate(ws_url, TEARDOWN_EXPR)
+            done += 1
+        except Exception as e:
+            _debug("teardown failed for %s: %s" % (ws_url, e))
+    return done
+
+
 def run(transport, plan, sources):
     """Inject each planned (ws_url, slots). Errors are per-target isolated."""
     injected = 0
@@ -334,16 +354,12 @@ def main(argv=None):
                     help="Steam client DevTools port (default %d)" % DEFAULT_PORT)
     ap.add_argument("--script-dir", default=here,
                     help="directory holding the two .js scripts (default: this file's dir)")
+    ap.add_argument("--teardown", action="store_true",
+                    help="remove the injected UI (all page targets) and exit")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args(argv)
 
     VERBOSE = args.verbose
-
-    try:
-        sources = load_sources(args.script_dir)
-    except OSError as e:
-        log("cannot read scripts from %s: %s" % (args.script_dir, e))
-        return 2
 
     transport = CdpTransport(args.port)
     try:
@@ -360,6 +376,17 @@ def main(argv=None):
     if not plan:
         _debug("no page targets on :%d" % args.port)
         return 0
+
+    if args.teardown:
+        n = teardown_all(transport, plan)
+        _debug("tore down %d target(s) on :%d" % (n, args.port))
+        return 0
+
+    try:
+        sources = load_sources(args.script_dir)
+    except OSError as e:
+        log("cannot read scripts from %s: %s" % (args.script_dir, e))
+        return 2
 
     injected = run(transport, plan, sources)
     _debug("done: %d injection(s) across %d target(s)" % (injected, len(plan)))
