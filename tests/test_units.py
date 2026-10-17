@@ -14,13 +14,19 @@ def read(path):
 class UnitFileTests(unittest.TestCase):
     def test_service_is_a_restarting_daemon(self):
         t = read(os.path.join(SRC, "sf-ui-haptic-switch.service"))
-        self.assertIn("Type=simple", t)
-        self.assertIn("User=steamos", t)
-        self.assertIn("INSTALLATION_PATH/src/sf_ui_haptic_switch_daemon.py", t)
-        self.assertIn("Restart=always", t)
-        self.assertIn("RestartSec=1", t)
-        self.assertNotIn("Type=oneshot", t)
+        unit, _, service = t.partition("[Service]")
+        self.assertIn("Type=simple", service)
+        self.assertIn("User=steamos", service)
+        self.assertIn("INSTALLATION_PATH/src/sf_ui_haptic_switch_daemon.py", service)
+        self.assertIn("Restart=always", service)
+        self.assertIn("RestartSec=5", service)
+        self.assertNotIn("Type=oneshot", service)
         self.assertIn("WantedBy=multi-user.target", t)
+        # Start rate limiting belongs in [Unit] and must trip before the
+        # window slides past the retries: RestartSec * Burst < Interval.
+        self.assertIn("StartLimitIntervalSec=60", unit)
+        self.assertIn("StartLimitBurst=3", unit)
+        self.assertNotIn("StartLimit", service)
 
     def test_timer_is_gone(self):
         self.assertFalse(os.path.exists(
