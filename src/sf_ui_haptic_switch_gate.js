@@ -47,6 +47,7 @@
   var RETRY_MS = 1000;
 
   var timer = null;
+  var stopped = false;
   var wrappers = [];   /* { owner, prop, patched, original } */
 
   function log() {
@@ -136,6 +137,7 @@
   }
 
   function install() {
+    if (stopped) return false;
     var specs = bridgeSpecs();
     var installed = 0;
     for (var i = 0; i < specs.length; i++) {
@@ -160,6 +162,9 @@
   }
 
   function teardown() {
+    /* Same idea as the UI's tornDown: 已排队的 interval 回调不能在 teardown 后
+     * 重新包装 bridge，此时 NS.gate 已为 null，包装也无法再被清理。 */
+    stopped = true;
     if (timer) { clearInterval(timer); timer = null; }
     restore();
     try { if (NS.gate === API) NS.gate = null; } catch (e) {}

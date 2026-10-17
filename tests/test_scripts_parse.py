@@ -128,6 +128,13 @@ class ContractTests(unittest.TestCase):
         self.assertGreater(
             body.index("sawDown = now"), body.index("lastFlip < 250"))
 
+    def test_gate_stops_after_teardown(self):
+        t = read(GATE)
+        self.assertIn("var stopped = false;", t)
+        self.assertIn("if (stopped) return false;", t)
+        self.assertIn("stopped = true;", t)
+        self.assertIn("已排队", t)
+
     def test_gate_never_uses_the_binding(self):
         self.assertNotIn("__sfHapticSend", read(GATE))
         self.assertNotIn("__sfUiHapticSwitchSend", read(GATE))
