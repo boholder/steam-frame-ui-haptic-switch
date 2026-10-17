@@ -61,7 +61,7 @@ T0 之后确认 `:8087` 可由 `~/.config/openvr/config/steamvr.vrsettings` 的
 | Q3 | 8080 目标 | 保持不变：所有 page target 注 gate，`barpopup` 额外注 UI |
 | Q3 | 8087 目标 | attach 所有 page target，只注 gate；不设 title 白名单 |
 | Q4 | 注入方式 | `Page.addScriptToEvaluateOnNewDocument` + 对当前文档 `Runtime.evaluate` 兜底 |
-| Q5 | CLI | `--status`、`--verbose`；无 `--on/--off` |
+| Q5 | CLI | `--status`、`--verbose`；可选 `--script-dir`、`--state-file`（测试/运维）；无 `--on/--off` |
 | Q6 | 服务 | `Type=simple`、`User=steamos`、`Restart=always`、`RestartSec=1`；删除 timer |
 | Q6 | 状态文件 | `~/.local/state/sf-ui-haptic-switch/state.json`，`{"enabled": true|false}`，0600，原子写 |
 | Q6 | 文件命名 | `sf_ui_haptic_switch_inject.py` → `sf_ui_haptic_switch_daemon.py` |
@@ -173,7 +173,7 @@ EOverlayHapticEffect:
    - `Runtime.addBinding {name:"__sfUiHapticSwitchSend"}`；
    - 握手：evaluate `window.__sfUiHapticSwitchSend('{"c":"hello"}')`，
      1 秒内等 `Runtime.bindingCalled`；
-   - 失败快速重试 3 次（约 100ms 间隔）；仍失败 → 尽力 teardown → `exit 1`。
+   - 失败重试 3 次（每次等 1 秒）；仍失败 → 尽力 teardown → `exit 1`。
    - `Runtime.executionContextCreated`（默认 world）：重新 addBinding + 握手 + 读一次 8080。
 5. 每次 binding 事件：回读 8080、持久化、推 8087（见“状态流”）。
 
@@ -182,7 +182,7 @@ EOverlayHapticEffect:
 ```text
 --steamwebhelper-port  default 8080
 --vrwebhelper-port     default 8087
---status               打印 state.json、两个端点连通性、已 attach target 数、UI target 是否存在
+--status               打印 state.json、两个端点连通性、每个端点的 page target 数、UI target 是否存在
 --verbose              打印 attach/inject/push/command 细节
 ```
 
@@ -219,7 +219,8 @@ WantedBy=multi-user.target
 - 删除 `src/sf-ui-haptic-switch.timer`。
 - `install.sh` 升级路径：停用并删除旧 timer，停旧 service，重写 unit，`daemon-reload`，
   `enable --now` 新 service；等待数秒确认 active，并提示 `:8087` 需 SteamVR 重启后才出现。
-- `uninstall.sh`：停/禁 service，清理旧 timer，删除 unit 与安装目录。
+- `uninstall.sh`：停/禁 service，清理旧 timer，删除 unit、安装目录与状态目录
+  （`~/.local/state/sf-ui-haptic-switch`）。
 
 #### `steamvr.vrsettings` 编辑
 
@@ -227,6 +228,7 @@ WantedBy=multi-user.target
 
 - install：
   - 若文件存在，复制为同目录 `steamvr.vrsettings.bak`（覆盖旧 `.bak`）；
+  - 若文件不存在，创建它（目录一并创建）；
   - 解析 JSON，设置 `VRWebHelper.DebuggerEnabled = true`；
   - 保留其他所有键；按原风格（3 空格缩进、`"key" : value`）原子写回；
   - 保留原文件所有者与权限。
@@ -249,7 +251,7 @@ WantedBy=multi-user.target
 | `src/sf-ui-haptic-switch.service` | 改为常驻 daemon |
 | `src/sf-ui-haptic-switch.timer` | 删除 |
 | `install.sh` | 常驻服务、旧 timer 迁移、vrsettings 编辑 |
-| `uninstall.sh` | 停服务、清理 timer、删除配置键、删除文件 |
+| `uninstall.sh` | 停服务、清理 timer、删除配置键、状态目录与文件 |
 | `tests/test_inject.py` | 删除/替换 |
 | `tests/test_daemon.py` | 新增纯逻辑单测 |
 | `tests/test_scripts_parse.py` | 更新契约（binding 名、双桥、注释） |

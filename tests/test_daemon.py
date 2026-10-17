@@ -65,6 +65,14 @@ class TargetTests(unittest.TestCase):
             ["gate", "ui"])
         self.assertEqual(d.scripts_for("systemui", ""), ["gate"])
 
+    def test_vr_never_gets_the_qam_ui(self):
+        self.assertEqual(
+            d.scripts_for("valve.steam.gamepadui.barpopup", "", kind="vr"),
+            ["gate"])
+        self.assertEqual(
+            d.scripts_for("valve.steam.gamepadui.barpopup", "", kind="steam"),
+            ["gate", "ui"])
+
 
 class InjectionExprTests(unittest.TestCase):
     def test_marker_is_stable_and_short(self):

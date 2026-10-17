@@ -120,9 +120,14 @@ def is_ui_target(title, url):
     return UI_MATCH in ((title or "") + (url or ""))
 
 
-def scripts_for(title, url):
-    """Which scripts a page needs. The gate goes everywhere; ui only barpopup."""
-    if is_ui_target(title, url):
+def scripts_for(title, url, kind="steam"):
+    """Which scripts a page needs.
+
+    The gate goes everywhere. The QAM UI is a Steam-client concept: it must
+    never be installed into a SteamVR Dashboard page, even if a Dashboard URL
+    happens to contain the barpopup key.
+    """
+    if kind == "steam" and is_ui_target(title, url):
         return [SLOT_GATE, SLOT_UI]
     return [SLOT_GATE]
 
@@ -344,10 +349,9 @@ def http_json(url, timeout=5.0):
 class Endpoint:
     """One browser-level CDP connection plus its reader thread."""
 
-    def __init__(self, port, events, verbose=False, kind=None):
+    def __init__(self, port, events, kind):
         self.port = port
         self.events = events
-        self.verbose = verbose
         self.kind = kind
         self.ws = None
         self.reader = None
@@ -475,12 +479,20 @@ class Session:
         self.target_id = target_id
         self.title = title
         self.url = url
-        self.is_ui = is_ui_target(title, url)
-        self.slots = scripts_for(title, url)
+        self.is_ui = endpoint.kind == "steam" and is_ui_target(title, url)
+        self.slots = scripts_for(title, url, endpoint.kind)
         self.addscript_id = None
         self.handshake_ok = False
         self.handshake_attempts = 0
         self.handshake_deadline = 0.0
+
+    def call(self, method, params=None, timeout=10.0):
+        return self.endpoint.call(
+            method, params, session=self.session_id, timeout=timeout)
+
+    def evaluate(self, expr, timeout=10.0):
+        return self.endpoint.evaluate(
+            expr, session=self.session_id, timeout=timeout)
 
     @property
     def steam(self):
@@ -492,18 +504,17 @@ class Session:
 
 
 class Daemon:
-    def __init__(self, steam_port, vr_port, sources, state_file, verbose=False):
+    def __init__(self, steam_port, vr_port, sources, state_file):
         self.steam_port = steam_port
         self.vr_port = vr_port
         self.sources = sources
         self.markers = {slot: build_marker(src) for slot, src in sources.items()}
         self.state_file = state_file
-        self.verbose = verbose
         self.enabled = load_state(state_file)
         self.events = queue.Queue()
         self.endpoints = [
-            Endpoint(steam_port, self.events, verbose, kind="steam"),
-            Endpoint(vr_port, self.events, verbose, kind="vr"),
+            Endpoint(steam_port, self.events, kind="steam"),
+            Endpoint(vr_port, self.events, kind="vr"),
         ]
         self.sessions = {}
         self.target_sessions = {}
@@ -610,13 +621,12 @@ class Daemon:
                 info.get("title") or "", info.get("url") or "")
             self.sessions[session_id] = session
             self.target_sessions[key] = session_id
-            endpoint.call("Runtime.enable", session=session_id)
-            endpoint.call("Page.enable", session=session_id)
+            session.call("Runtime.enable")
+            session.call("Page.enable")
             try:
-                added = endpoint.call(
+                added = session.call(
                     "Page.addScriptToEvaluateOnNewDocument",
-                    {"source": page_script(self.sources, session.slots)},
-                    session=session_id)
+                    {"source": page_script(self.sources, session.slots)})
                 session.addscript_id = added.get("identifier")
             except Exception as e:
                 _debug("addScript failed on %s: %s" % (session.title, e))
@@ -644,9 +654,10 @@ class Daemon:
             return
         session.title = info.get("title") or session.title
         session.url = info.get("url") or session.url
-        if not session.is_ui and is_ui_target(session.title, session.url):
+        if (not session.is_ui and endpoint.kind == "steam"
+                and is_ui_target(session.title, session.url)):
             session.is_ui = True
-            session.slots = scripts_for(session.title, session.url)
+            session.slots = scripts_for(session.title, session.url, endpoint.kind)
             try:
                 self._inject_current(session)
                 self._start_handshake(session)
@@ -676,13 +687,10 @@ class Daemon:
             if source is None:
                 continue
             marker = self.markers[slot]
-            current = session.endpoint.evaluate(
-                probe_expr(slot), session=session.session_id)
+            current = session.evaluate(probe_expr(slot))
             if current == marker:
                 continue
-            session.endpoint.evaluate(
-                inject_expr(source, slot, marker),
-                session=session.session_id, timeout=20.0)
+            session.evaluate(inject_expr(source, slot, marker), timeout=20.0)
             _debug("inject -> %s [%s] build %s" % (
                 session.title, slot, marker))
 
@@ -690,6 +698,10 @@ class Daemon:
         if session.is_ui:
             self._start_handshake(session)
             self._sync_from_steam()
+        if session.vr:
+            # A Dashboard page reloaded: its localStorage may have been
+            # recreated, so put the current value back immediately.
+            self._push_session(session)
         try:
             self._inject_current(session)
         except Exception as e:
@@ -707,12 +719,11 @@ class Daemon:
         session.handshake_attempts += 1
         session.handshake_deadline = time.time() + HANDSHAKE_TIMEOUT
         try:
-            session.endpoint.call(
-                "Runtime.addBinding", {"name": BINDING},
-                session=session.session_id)
-            session.endpoint.evaluate(
-                "window.%s(JSON.stringify({c:'hello'}))" % BINDING,
-                session=session.session_id)
+            session.call("Runtime.addBinding", {"name": BINDING})
+            session.evaluate(
+                "window.%s(JSON.stringify({c:'hello'}))" % BINDING)
+            _debug("handshake -> %s (attempt %d)" % (
+                session.title, session.handshake_attempts))
         except Exception as e:
             _debug("handshake send failed: %s" % e)
 
@@ -740,13 +751,20 @@ class Daemon:
                 log("binding verified on %s" % session.title)
                 self._sync_from_steam()
             return
+        _debug("binding <- %s" % payload[:120])
         self._on_user_change(msg.get("enabled"))
 
     # -- state --------------------------------------------------------------
 
     def _choose_steam_session(self):
+        # The QAM page is always the best place to read the flag. The fallback
+        # avoids the data: utility target, whose origin is not the shared
+        # steamloopback.host storage.
         for session in self.sessions.values():
             if session.steam and session.is_ui:
+                return session
+        for session in self.sessions.values():
+            if session.steam and not (session.url or "").startswith("data:"):
                 return session
         for session in self.sessions.values():
             if session.steam:
@@ -758,25 +776,28 @@ class Daemon:
         if session is None:
             return None
         try:
-            raw = session.endpoint.evaluate(
-                "localStorage.getItem(%s)" % json.dumps(KEY),
-                session=session.session_id)
+            raw = session.evaluate("localStorage.getItem(%s)" % json.dumps(KEY))
             return normalize_enabled(raw)
         except Exception as e:
             _debug("read :8080 flag failed: %s" % e)
             return None
+
+    def _set_enabled(self, enabled):
+        if enabled == self.enabled:
+            return False
+        self.enabled = enabled
+        try:
+            save_state(self.state_file, enabled)
+        except Exception as e:
+            log("state write failed: %s" % e)
+        return True
 
     def _sync_from_steam(self):
         enabled = self._read_steam_enabled()
         if enabled is None:
             return
         self.steam_synced = True
-        if enabled != self.enabled:
-            self.enabled = enabled
-            try:
-                save_state(self.state_file, enabled)
-            except Exception as e:
-                log("state write failed: %s" % e)
+        if self._set_enabled(enabled):
             _debug("state <- :8080 %s" % storage_value(enabled))
         self._push_vr()
 
@@ -786,12 +807,7 @@ class Daemon:
             if hint is None:
                 return
             enabled = bool(hint)
-        if enabled != self.enabled:
-            self.enabled = enabled
-            try:
-                save_state(self.state_file, enabled)
-            except Exception as e:
-                log("state write failed: %s" % e)
+        if self._set_enabled(enabled):
             log("switch -> %s" % storage_value(enabled))
         self.steam_synced = True
         self._push_vr()
@@ -802,14 +818,16 @@ class Daemon:
                 self._push_session(session)
 
     def _push_session(self, session):
+        value = storage_value(self.enabled)
         try:
-            session.endpoint.evaluate(
+            session.evaluate(
                 "localStorage.setItem(%s, %s)" % (
-                    json.dumps(KEY), json.dumps(storage_value(self.enabled))),
-                session=session.session_id)
+                    json.dumps(KEY), json.dumps(value)))
+            _debug("push -> %s %s" % (session.title, value))
         except Exception as e:
+            # A reload may have invalidated the context. Target events will
+            # attach and push again; do not delete the session permanently.
             _debug("push to %s failed: %s" % (session.title, e))
-            self._drop_session(session.session_id)
 
     # -- shutdown -----------------------------------------------------------
 
@@ -817,8 +835,7 @@ class Daemon:
         expr = teardown_expr()
         for session in list(self.sessions.values()):
             try:
-                session.endpoint.evaluate(
-                    expr, session=session.session_id, timeout=2.0)
+                session.evaluate(expr, timeout=2.0)
             except Exception:
                 pass
 
@@ -895,7 +912,6 @@ def main(argv=None):
         args.vrwebhelper_port,
         sources,
         state_file,
-        verbose=args.verbose,
     )
 
     def stop(*_args):

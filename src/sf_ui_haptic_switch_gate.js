@@ -72,8 +72,13 @@
 
     var current = owner[prop];
 
-    /* Already wrapped by us: take ownership so a later teardown restores it. */
+    /* Already wrapped by us: take ownership so a later teardown restores it.
+     * The install timer runs every second, so do not append a duplicate
+     * record on every tick. */
     if (current.__sfUiHapticWrapped && current.__sfUiHapticOriginal) {
+      for (var i = 0; i < wrappers.length; i++) {
+        if (wrappers[i].patched === current) return true;
+      }
       wrappers.push({
         owner: owner,
         prop: prop,
