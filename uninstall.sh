@@ -74,14 +74,16 @@ fi
 # --------------------------------------------------------------------------
 step "4/4  完成"
 # --------------------------------------------------------------------------
-if command -v curl >/dev/null && curl -s --max-time 2 \
-     http://127.0.0.1:8080/json/list >/dev/null 2>&1; then
+running() {
+  command -v curl >/dev/null \
+    && curl -s --max-time 2 "http://127.0.0.1:$1/json/list" >/dev/null 2>&1
+}
+if running 8080; then
   warn "Steam 仍在运行：若头显里仍能看到开关，重启一次 Steam 客户端即可清掉"
 else
   ok "Steam 未运行，下次启动时页面是干净的"
 fi
-if command -v curl >/dev/null && curl -s --max-time 2 \
-     http://127.0.0.1:8087/json/list >/dev/null 2>&1; then
+if running 8087; then
   warn "SteamVR 仍在运行：Dashboard 页面上的包装会在下一次 reload 后消失"
 fi
 

@@ -21,6 +21,7 @@ import sys
 
 SECTION = "VRWebHelper"
 DEBUGGER_KEY = "DebuggerEnabled"
+CONFIG_OWNER = "steamos"
 
 
 def _load(path):
@@ -71,7 +72,7 @@ def enable(path):
     if st is None:
         try:
             import pwd
-            ent = pwd.getpwnam("steamos")
+            ent = pwd.getpwnam(CONFIG_OWNER)
             if created_dir:
                 os.chown(created_dir, ent.pw_uid, ent.pw_gid)
             os.chown(path, ent.pw_uid, ent.pw_gid)

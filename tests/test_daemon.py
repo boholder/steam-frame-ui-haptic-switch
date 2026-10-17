@@ -61,24 +61,38 @@ class TargetTests(unittest.TestCase):
 
     def test_scripts_for(self):
         self.assertEqual(
-            d.scripts_for("SteamVR - valve.steam.gamepadui.barpopup.1", ""),
+            d.scripts_for("SteamVR - valve.steam.gamepadui.barpopup.1", "",
+                          d.KIND_STEAM),
             ["gate", "ui"])
-        self.assertEqual(d.scripts_for("systemui", ""), ["gate"])
+        self.assertEqual(
+            d.scripts_for("systemui", "", d.KIND_STEAM), ["gate"])
 
     def test_vr_never_gets_the_qam_ui(self):
         self.assertEqual(
-            d.scripts_for("valve.steam.gamepadui.barpopup", "", kind="vr"),
+            d.scripts_for("valve.steam.gamepadui.barpopup", "", d.KIND_VR),
             ["gate"])
         self.assertEqual(
-            d.scripts_for("valve.steam.gamepadui.barpopup", "", kind="steam"),
+            d.scripts_for("valve.steam.gamepadui.barpopup", "", d.KIND_STEAM),
             ["gate", "ui"])
 
 
 class HandshakeTests(unittest.TestCase):
     def test_three_retries_after_the_first_send(self):
-        for attempts in (1, 2, 3, 4):
-            self.assertFalse(d.handshake_exhausted(attempts), attempts)
-        self.assertTrue(d.handshake_exhausted(5))
+        h = d.Handshake()
+        h.start()
+        for expected in (False, False, False, True):
+            h.sent(0)
+            self.assertEqual(h.exhausted(), expected)
+
+    def test_due_and_verified(self):
+        h = d.Handshake()
+        h.start()
+        self.assertFalse(h.due(0))
+        h.sent(0)
+        self.assertFalse(h.due(0))
+        self.assertTrue(h.due(d.HANDSHAKE_TIMEOUT))
+        h.ok = True
+        self.assertFalse(h.due(d.HANDSHAKE_TIMEOUT * 2))
 
 
 class StatusTests(unittest.TestCase):

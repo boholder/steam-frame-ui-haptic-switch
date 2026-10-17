@@ -127,16 +127,17 @@ fi
 ok "daemon 运行中"
 
 sleep 1
-if journalctl -u "$SERVICE" -n 50 --no-pager -o cat 2>/dev/null | grep -q 'attached endpoint :8080'; then
-  ok "已连上 :8080"
-else
-  warn "还没连上 :8080（Steam 未运行？daemon 会自动重试，无需重装）"
-fi
-if journalctl -u "$SERVICE" -n 50 --no-pager -o cat 2>/dev/null | grep -q 'attached endpoint :8087'; then
-  ok "已连上 :8087"
-else
-  warn "还没连上 :8087（SteamVR 未运行或还没重启？daemon 会自动重试）"
-fi
+check_endpoint() {
+  local port="$1" owner="$2"
+  if journalctl -u "$SERVICE" -n 50 --no-pager -o cat 2>/dev/null \
+       | grep -q "attached endpoint :$port"; then
+    ok "已连上 :$port"
+  else
+    warn "还没连上 :$port（$owner 未运行或还没重启？daemon 会自动重试）"
+  fi
+}
+check_endpoint 8080 "Steam"
+check_endpoint 8087 "SteamVR"
 
 cat <<'EOF'
 

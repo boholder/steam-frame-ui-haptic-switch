@@ -71,6 +71,15 @@
       (effect === EFFECT_BUTTON_ENTER || effect === EFFECT_BUTTON_LEAVE);
   }
 
+  function remember(owner, prop, patched, original) {
+    wrappers.push({
+      owner: owner,
+      prop: prop,
+      patched: patched,
+      original: original
+    });
+  }
+
   function wrap(owner, prop, makePatched) {
     if (!owner || typeof owner[prop] !== 'function') return false;
 
@@ -83,12 +92,7 @@
       for (var i = 0; i < wrappers.length; i++) {
         if (wrappers[i].patched === current) return true;
       }
-      wrappers.push({
-        owner: owner,
-        prop: prop,
-        patched: current,
-        original: current.__sfUiHapticOriginal
-      });
+      remember(owner, prop, current, current.__sfUiHapticOriginal);
       return true;
     }
 
@@ -99,12 +103,7 @@
     try { owner[prop] = patched; } catch (e) { return false; }
     if (owner[prop] !== patched) return false;
 
-    wrappers.push({
-      owner: owner,
-      prop: prop,
-      patched: patched,
-      original: current
-    });
+    remember(owner, prop, patched, current);
     return true;
   }
 
@@ -131,7 +130,7 @@
     return function (original) {
       return function () {
         if (shouldDrop(arguments[effectArg])) return undefined;
-        return original.apply(this, arguments);
+        return Reflect.apply(original, this, arguments);
       };
     };
   }

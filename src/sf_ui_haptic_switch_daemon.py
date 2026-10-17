@@ -120,7 +120,7 @@ def is_ui_target(title, url):
     return UI_MATCH in ((title or "") + (url or ""))
 
 
-def scripts_for(title, url, kind=KIND_STEAM):
+def scripts_for(title, url, kind):
     """Which scripts a page needs.
 
     The gate goes everywhere. The QAM UI is a Steam-client concept: it must
@@ -167,11 +167,6 @@ def teardown_expr():
         "if(n.gate&&n.gate.teardown){n.gate.teardown();}}"
         "delete window.%s;}catch(e){}})()" % (GLOBAL, GLOBAL)
     )
-
-
-def handshake_exhausted(attempts):
-    """The first send plus HANDSHAKE_RETRIES retries are allowed."""
-    return attempts > HANDSHAKE_MAX_SENDS
 
 
 def default_state_path():
@@ -222,6 +217,30 @@ def load_sources(script_dir):
 # daemon
 # --------------------------------------------------------------------------
 
+class Handshake:
+    """The binding handshake for one UI session: first send + 3 retries."""
+
+    def __init__(self):
+        self.ok = False
+        self.attempts = 0
+        self.deadline = 0.0
+
+    def start(self):
+        self.ok = False
+        self.attempts = 0
+        self.deadline = 0.0
+
+    def sent(self, now):
+        self.attempts += 1
+        self.deadline = now + HANDSHAKE_TIMEOUT
+
+    def due(self, now):
+        return not self.ok and self.deadline and now >= self.deadline
+
+    def exhausted(self):
+        return self.attempts >= HANDSHAKE_MAX_SENDS
+
+
 class Session:
     def __init__(self, endpoint, session_id, target_id, title, url):
         self.endpoint = endpoint
@@ -232,9 +251,7 @@ class Session:
         self.slots = scripts_for(title, url, endpoint.kind)
         self.is_ui = SLOT_UI in self.slots
         self.addscript_id = None
-        self.handshake_ok = False
-        self.handshake_attempts = 0
-        self.handshake_deadline = 0.0
+        self.handshake = Handshake()
 
     def call(self, method, params=None, timeout=10.0):
         return self.endpoint.call(
@@ -398,7 +415,7 @@ class Daemon:
             self._start_handshake(session)
         if session.vr:
             self._push_session(session)
-        if session.steam and not self.steam_synced:
+        if self._can_read_flag(session) and not self.steam_synced:
             self._sync_from_steam()
 
     def _refresh_target(self, endpoint, info):
@@ -466,32 +483,27 @@ class Daemon:
     # -- binding handshake --------------------------------------------------
 
     def _start_handshake(self, session):
-        session.handshake_ok = False
-        session.handshake_attempts = 0
-        session.handshake_deadline = 0.0
+        session.handshake.start()
         self._send_handshake(session)
 
     def _send_handshake(self, session):
-        session.handshake_attempts += 1
-        session.handshake_deadline = time.time() + HANDSHAKE_TIMEOUT
+        session.handshake.sent(time.time())
         try:
             session.call("Runtime.addBinding", {"name": BINDING})
             session.evaluate(
                 "window.%s(JSON.stringify({c:'hello'}))" % BINDING)
             _debug("handshake -> %s (attempt %d)" % (
-                session.title, session.handshake_attempts))
+                session.title, session.handshake.attempts))
         except Exception as e:
             _debug("handshake send failed: %s" % e)
 
     def _check_handshakes(self, now):
         for session in list(self.sessions.values()):
-            if not session.is_ui or session.handshake_ok:
+            if not session.is_ui or not session.handshake.due(now):
                 continue
-            if not session.handshake_deadline or now < session.handshake_deadline:
-                continue
-            if handshake_exhausted(session.handshake_attempts):
+            if session.handshake.exhausted():
                 log("binding handshake failed after %d attempts; restarting" %
-                    session.handshake_attempts)
+                    session.handshake.attempts)
                 self.fatal = True
                 return
             self._send_handshake(session)
@@ -502,28 +514,30 @@ class Daemon:
             return
         session = self.sessions.get(session_id)
         if msg["kind"] == "hello":
-            if session is not None and not session.handshake_ok:
-                session.handshake_ok = True
+            if session is not None and not session.handshake.ok:
+                session.handshake.ok = True
                 log("binding verified on %s" % session.title)
                 self._sync_from_steam()
             return
-        _debug("binding <- %s" % payload[:120])
+        _debug("binding <- %s (v=%s)" % (payload[:120], msg.get("enabled")))
         self._on_user_change()
 
     # -- state --------------------------------------------------------------
 
+    def _can_read_flag(self, session):
+        """A data: utility page has an opaque origin, not the shared storage."""
+        return session.steam and not (session.url or "").startswith("data:")
+
     def _choose_steam_session(self):
-        # The QAM page is always the best place to read the flag. The fallback
-        # avoids the data: utility target, whose origin is not the shared
-        # steamloopback.host storage.
+        # The QAM page is always the best place to read the flag.
         candidates = [s for s in self.sessions.values() if s.steam]
         for session in candidates:
-            if session.is_ui:
+            if session.is_ui and self._can_read_flag(session):
                 return session
         for session in candidates:
-            if not (session.url or "").startswith("data:"):
+            if self._can_read_flag(session):
                 return session
-        return candidates[0] if candidates else None
+        return None
 
     def _read_steam_enabled(self):
         session = self._choose_steam_session()
@@ -546,14 +560,20 @@ class Daemon:
             log("state write failed: %s" % e)
         return True
 
+    def _apply_enabled(self, enabled, source):
+        if self._set_enabled(enabled):
+            if source == "switch":
+                log("switch -> %s" % storage_value(enabled))
+            else:
+                _debug("state <- :8080 %s" % storage_value(enabled))
+        self.steam_synced = True
+        self._push_vr()
+
     def _sync_from_steam(self):
         enabled = self._read_steam_enabled()
         if enabled is None:
             return
-        self.steam_synced = True
-        if self._set_enabled(enabled):
-            _debug("state <- :8080 %s" % storage_value(enabled))
-        self._push_vr()
+        self._apply_enabled(enabled, "sync")
 
     def _on_user_change(self):
         enabled = self._read_steam_enabled()
@@ -562,10 +582,7 @@ class Daemon:
             # value; never persist the binding hint in its place.
             self._push_vr()
             return
-        if self._set_enabled(enabled):
-            log("switch -> %s" % storage_value(enabled))
-        self.steam_synced = True
-        self._push_vr()
+        self._apply_enabled(enabled, "switch")
 
     def _push_vr(self):
         for session in list(self.sessions.values()):
