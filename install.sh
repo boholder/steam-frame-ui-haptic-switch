@@ -4,7 +4,7 @@
 #   sudo ./install.sh
 #
 #   1. 校验权限与安装包
-#   2. 拷贝两个前端脚本 + daemon + 一个 systemd 单元
+#   2. 安装 systemd 单元（直接指向本仓库，不复制文件）
 #   3. 迁移旧版本（停用/删除 timer 与 oneshot 注入器）
 #   4. 打开 SteamVR 的 vrwebhelper 调试端口
 #   5. 启动 daemon 并确认它活着
@@ -14,9 +14,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$HERE/src"
 [ -d "$SRC" ] || SRC="$HERE"
 
-LIB="$HERE/src/sf_ui_haptic_switch_lib.sh"
-[ -f "$LIB" ] || LIB="$HERE/sf_ui_haptic_switch_lib.sh"
-# shellcheck source=src/sf_ui_haptic_switch_lib.sh
+LIB="$HERE/installation_lib.sh"
+[ -f "$LIB" ] || { printf 'missing %s\n' "$LIB" >&2; exit 1; }
+# shellcheck source=installation_lib.sh
 . "$LIB"
 
 # --------------------------------------------------------------------------
@@ -38,39 +38,12 @@ done
 ok "安装包完整"
 
 # --------------------------------------------------------------------------
-step "2/5  复制文件到 $DEST"
+step "2/5  安装 systemd 单元"
 # --------------------------------------------------------------------------
-# 文件由 root 拥有、可被所有人读；服务以 User=steamos 运行，只读这些文件。
-install -d "$DEST"
-
-copy() {  # copy <文件名> <权限>
-  local src="$SRC/$1" mode="$2" dst="$DEST/$1"
-  if [ "$(readlink -f "$src")" = "$(readlink -f "$dst" 2>/dev/null || echo "$dst")" ]; then
-    chmod "$mode" "$dst"
-  else
-    install -m "$mode" "$src" "$dst"
-  fi
-  ok "$1  ($mode)"
-}
-
-copy sf_ui_haptic_switch_gate.js     0644
-copy sf_ui_haptic_switch_ui.js       0644
-copy sf_ui_haptic_switch_daemon.py   0755
-copy sf_ui_haptic_switch_cdp.py      0644
-copy sf_ui_haptic_switch_settings.py 0644
-
-# 旧版本的 oneshot 注入器与 timer 不再使用
-rm -f "$DEST/sf_ui_haptic_switch_inject.py" "$DEST/sf-ui-haptic-switch.timer"
-
+# 仓库目录就是安装目录：不复制文件，unit 直接指向 $SRC。
 install -m 0644 "$SRC/$SERVICE" "$UNIT_DIR/$SERVICE"
 sed -i "s#/home/steamos/sf-ui-haptic-switch#$DEST#g" "$UNIT_DIR/$SERVICE"
-ok "单元已写入 $UNIT_DIR/$SERVICE"
-
-for extra in README.md; do
-  [ -f "$HERE/$extra" ] || continue
-  install -m 0644 "$HERE/$extra" "$DEST/$extra"
-  ok "$extra"
-done
+ok "单元已写入 $UNIT_DIR/$SERVICE（指向 $SRC）"
 
 # --------------------------------------------------------------------------
 step "3/5  迁移旧版本（timer / oneshot 注入器）"
@@ -139,7 +112,7 @@ check_endpoint() {
 check_endpoint 8080 "Steam"
 check_endpoint 8087 "SteamVR"
 
-cat <<'EOF'
+cat <<EOF
 
 ────────────────────────────────────────────────────────────
  安装完成
@@ -152,7 +125,7 @@ cat <<'EOF'
  才会出现；daemon 会自动接上，不需要重装。
 
      journalctl -u sf-ui-haptic-switch.service -f   查看 daemon 日志
-     python3 /home/steamos/sf-ui-haptic-switch/sf_ui_haptic_switch_daemon.py --status
+     python3 $SRC/sf_ui_haptic_switch_daemon.py --status
      sudo ./uninstall.sh                            卸载
 ────────────────────────────────────────────────────────────
 EOF

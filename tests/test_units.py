@@ -16,7 +16,7 @@ class UnitFileTests(unittest.TestCase):
         t = read(os.path.join(SRC, "sf-ui-haptic-switch.service"))
         self.assertIn("Type=simple", t)
         self.assertIn("User=steamos", t)
-        self.assertIn("sf_ui_haptic_switch_daemon.py", t)
+        self.assertIn("/src/sf_ui_haptic_switch_daemon.py", t)
         self.assertIn("Restart=always", t)
         self.assertIn("RestartSec=1", t)
         self.assertNotIn("Type=oneshot", t)
@@ -41,27 +41,42 @@ class ScriptContractTests(unittest.TestCase):
         t = read(os.path.join(ROOT, "install.sh"))
         self.assertIn("sf_ui_haptic_switch_daemon.py", t)
         self.assertIn("sf_ui_haptic_switch_cdp.py", t)
-        self.assertIn("sf_ui_haptic_switch_lib.sh", t)
+        self.assertIn("installation_lib.sh", t)
         self.assertIn("systemctl enable", t)
-        self.assertIn("sf-ui-haptic-switch.timer", t)   # removed on upgrade
+        self.assertIn("$TIMER", t)   # removed on upgrade
         self.assertIn("sf_ui_haptic_switch_settings.py", t)
         self.assertIn("--enable", t)
         self.assertNotIn("--teardown", t)
         helper = read(os.path.join(SRC, "sf_ui_haptic_switch_settings.py"))
         self.assertIn("VRWebHelper", helper)
         self.assertIn("DebuggerEnabled", helper)
-        lib = read(os.path.join(SRC, "sf_ui_haptic_switch_lib.sh"))
+        lib = read(os.path.join(ROOT, "installation_lib.sh"))
         self.assertIn("steamvr.vrsettings", lib)
+
+    def test_install_does_not_copy_the_repo(self):
+        t = read(os.path.join(ROOT, "install.sh"))
+        self.assertNotIn("copy sf_", t)
+        self.assertNotIn('install -d "$DEST"', t)
+        self.assertIn('install -m 0644 "$SRC/$SERVICE"', t)
+
+    def test_uninstall_does_not_delete_the_checkout(self):
+        t = read(os.path.join(ROOT, "uninstall.sh"))
+        self.assertNotIn('rm -rf "$DEST"', t)
+        self.assertIn("$SRC/sf_ui_haptic_switch_settings.py", t)
+
+    def test_lib_uses_the_checkout_as_dest(self):
+        lib = read(os.path.join(ROOT, "installation_lib.sh"))
+        self.assertIn('DEST="$HERE"', lib)
 
     def test_uninstall_removes_the_daemon_and_the_debugger_key(self):
         t = read(os.path.join(ROOT, "uninstall.sh"))
         self.assertIn("$TIMER", t)
         self.assertIn("systemctl", t)
-        self.assertIn("sf_ui_haptic_switch_lib.sh", t)
+        self.assertIn("installation_lib.sh", t)
         self.assertIn("sf_ui_haptic_switch_settings.py", t)
         self.assertIn("--disable", t)
         self.assertNotIn("--teardown", t)
-        lib = read(os.path.join(SRC, "sf_ui_haptic_switch_lib.sh"))
+        lib = read(os.path.join(ROOT, "installation_lib.sh"))
         self.assertIn("steamvr.vrsettings", lib)
         self.assertIn("TIMER=\"sf-ui-haptic-switch.timer\"", lib)
         self.assertIn("STATE_DIR", lib)

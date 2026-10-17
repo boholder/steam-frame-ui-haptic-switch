@@ -9,10 +9,13 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-LIB="$HERE/src/sf_ui_haptic_switch_lib.sh"
-[ -f "$LIB" ] || LIB="$HERE/sf_ui_haptic_switch_lib.sh"
-# shellcheck source=src/sf_ui_haptic_switch_lib.sh
+LIB="$HERE/installation_lib.sh"
+[ -f "$LIB" ] || { printf 'missing %s\n' "$LIB" >&2; exit 1; }
+# shellcheck source=installation_lib.sh
 . "$LIB"
+
+SRC="$HERE/src"
+[ -d "$SRC" ] || SRC="$HERE"
 
 [ "$(id -u)" -eq 0 ] || die "需要 root：sudo $0"
 
@@ -31,8 +34,7 @@ step "2/4  关闭 SteamVR Dashboard 调试端口"
 # --------------------------------------------------------------------------
 # 只删除 VRWebHelper.DebuggerEnabled；若 VRWebHelper 变空，连空节一起删。
 # 不恢复 .bak。
-SETTINGS="$DEST/sf_ui_haptic_switch_settings.py"
-[ -f "$SETTINGS" ] || SETTINGS="$HERE/src/sf_ui_haptic_switch_settings.py"
+SETTINGS="$SRC/sf_ui_haptic_switch_settings.py"
 
 if [ ! -f "$SETTINGS" ]; then
   warn "找不到 settings helper，跳过配置清理"
@@ -45,26 +47,12 @@ else
 fi
 
 # --------------------------------------------------------------------------
-step "3/4  删除单元、文件与状态"
+step "3/4  删除单元与状态"
 # --------------------------------------------------------------------------
 rm -f "$UNIT_DIR/$TIMER" "$UNIT_DIR/$SERVICE"
 systemctl daemon-reload
 systemctl reset-failed "$SERVICE" 2>/dev/null || true
 ok "删除 $UNIT_DIR/$TIMER 与 $UNIT_DIR/$SERVICE"
-
-if [ -d "$DEST" ]; then
-  case "$DEST" in
-    /|/home|/home/*/|"") die "拒绝删除 $DEST（路径不合理）" ;;
-  esac
-  if [ -f "$DEST/sf_ui_haptic_switch_daemon.py" ] || [ -f "$DEST/sf_ui_haptic_switch_gate.js" ]; then
-    rm -rf "$DEST"
-    ok "删除 $DEST"
-  else
-    warn "$DEST 存在但不像我们的安装目录，保留不动"
-  fi
-else
-  warn "$DEST 不存在"
-fi
 
 if [ -d "$STATE_DIR" ]; then
   rm -rf "$STATE_DIR"

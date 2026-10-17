@@ -69,23 +69,26 @@ reconnect, and whenever a page gets a new execution context.
 
 | Path | Role |
 | --- | --- |
-| `install.sh` / `uninstall.sh` | one-command install and uninstall |
+| `install.sh` / `uninstall.sh` | run in the checkout; installs the unit, does not copy the repo |
 | `src/sf_ui_haptic_switch_gate.js` | wraps both haptic bridges; gates the two button effects |
 | `src/sf_ui_haptic_switch_ui.js` | renders the switch and notifies the daemon |
 | `src/sf_ui_haptic_switch_daemon.py` | resident daemon (Python 3, stdlib only) |
 | `src/sf_ui_haptic_switch_cdp.py` | CDP transport: WebSocket, reader thread, endpoint sessions |
 | `src/sf_ui_haptic_switch_settings.py` | safe `steamvr.vrsettings` editor used by install/uninstall |
-| `src/sf_ui_haptic_switch_lib.sh` | shared install/uninstall constants and output helpers |
+| `installation_lib.sh` | shared install/uninstall constants and output helpers |
 | `src/sf-ui-haptic-switch.service` | systemd daemon unit |
 
 Installed layout:
 
 ```text
-/home/steamos/sf-ui-haptic-switch/                    program + scripts
-/etc/systemd/system/sf-ui-haptic-switch.service       daemon unit
+<this checkout>/                                      source + scripts (install runs in place)
+/etc/systemd/system/sf-ui-haptic-switch.service       daemon unit, points at the checkout
 /home/steamos/.local/state/sf-ui-haptic-switch/       persisted switch value
 ~/.config/openvr/config/steamvr.vrsettings            VRWebHelper.DebuggerEnabled
 ```
+
+The service executes `src/sf_ui_haptic_switch_daemon.py` directly from the
+checkout. Moving or deleting the checkout requires a reinstall.
 
 ## Limitations
 
@@ -102,7 +105,7 @@ Installed layout:
 ```bash
 journalctl -u sf-ui-haptic-switch.service -f
 systemctl status sf-ui-haptic-switch.service
-python3 /home/steamos/sf-ui-haptic-switch/sf_ui_haptic_switch_daemon.py --status
+python3 src/sf_ui_haptic_switch_daemon.py --status
 ```
 
 `--status` prints the persisted value plus the reachability and page count of

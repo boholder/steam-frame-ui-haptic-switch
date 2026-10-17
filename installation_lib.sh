@@ -2,7 +2,11 @@
 # Shared constants and output helpers for install.sh / uninstall.sh.
 # Sourced, not executed.
 
-DEST="/home/steamos/sf-ui-haptic-switch"
+# The caller (install.sh / uninstall.sh) sets HERE to the checkout path.
+: "${HERE:?HERE must be set before sourcing installation_lib.sh}"
+
+# The installer runs in place: the checkout is the install destination.
+DEST="$HERE"
 SERVICE="sf-ui-haptic-switch.service"
 TIMER="sf-ui-haptic-switch.timer"
 UNIT_DIR="/etc/systemd/system"

@@ -9,10 +9,10 @@
 ## 实现状态
 
 - 分支：`t7-daemon-8087`
-- 单测：`python -m unittest discover -s tests` → 51 passed，1 skipped
+- 单测：`python -m unittest discover -s tests` → 54 passed，1 skipped
   （Windows 上跳过 POSIX mode 断言）
 - 文件：`src/sf_ui_haptic_switch_daemon.py`、`sf_ui_haptic_switch_cdp.py`、
-  `sf_ui_haptic_switch_settings.py`、`sf_ui_haptic_switch_lib.sh`、
+  `sf_ui_haptic_switch_settings.py`、`installation_lib.sh`、
   `sf_ui_haptic_switch_gate.js`、`sf_ui_haptic_switch_ui.js`、
   `sf-ui-haptic-switch.service`、`install.sh`、`uninstall.sh`、`README.md`、`tests/`
 - 真机验收：待执行（见文末清单）
@@ -230,8 +230,9 @@ WantedBy=multi-user.target
 - 删除 `src/sf-ui-haptic-switch.timer`。
 - `install.sh` 升级路径：停用并删除旧 timer，停旧 service，重写 unit，`daemon-reload`，
   `enable --now` 新 service；等待数秒确认 active，并提示 `:8087` 需 SteamVR 重启后才出现。
-- `uninstall.sh`：停/禁 service，清理旧 timer，删除 unit、安装目录与状态目录
-  （`~/.local/state/sf-ui-haptic-switch`）。
+  **安装不复制仓库**：`ExecStart` 直接指向 `<checkout>/src/sf_ui_haptic_switch_daemon.py`。
+- `uninstall.sh`：停/禁 service，清理旧 timer，删除 unit 与状态目录
+  （`~/.local/state/sf-ui-haptic-switch`）；**保留仓库本身**。
 
 #### `steamvr.vrsettings` 编辑
 
@@ -259,13 +260,13 @@ WantedBy=multi-user.target
 | `src/sf_ui_haptic_switch_daemon.py` | 新增（daemon/状态/CLI） |
 | `src/sf_ui_haptic_switch_cdp.py` | 新增（WebSocket/CDP 传输） |
 | `src/sf_ui_haptic_switch_settings.py` | 新增（vrsettings 编辑） |
-| `src/sf_ui_haptic_switch_lib.sh` | 新增（install/uninstall 共享常量） |
+| `installation_lib.sh` | 新增（项目根目录；install/uninstall 共享常量） |
 | `src/sf_ui_haptic_switch_gate.js` | 双桥 + 效果注释 + teardown |
 | `src/sf_ui_haptic_switch_ui.js` | 写 localStorage 后发送 binding |
 | `src/sf-ui-haptic-switch.service` | 改为常驻 daemon |
 | `src/sf-ui-haptic-switch.timer` | 删除 |
-| `install.sh` | 常驻服务、旧 timer 迁移、vrsettings 编辑 |
-| `uninstall.sh` | 停服务、清理 timer、删除配置键、状态目录与文件 |
+| `install.sh` | 就地安装 unit（不复制仓库）、旧 timer 迁移、vrsettings 编辑 |
+| `uninstall.sh` | 停服务、清理 timer、删除配置键与状态目录（保留仓库） |
 | `tests/test_inject.py` | 删除/替换 |
 | `tests/test_daemon.py` | 新增纯逻辑单测 |
 | `tests/test_settings.py` | 新增 vrsettings 编辑单测 |
@@ -306,7 +307,7 @@ WantedBy=multi-user.target
    一次 CDP 往返内静音/恢复；拖滑杆/吸附仍有震动。
 6. 重启 SteamVR：daemon 自动重连，开关值保持（8080 localStorage / state.json）。
 7. `--status` 显示两个端点、target 数与 UI target。
-8. `sudo ./uninstall.sh` 后配置键消失、进程/单元/文件清理干净，震动恢复。
+8. `sudo ./uninstall.sh` 后配置键消失、进程/单元/状态清理干净，仓库保留，震动恢复。
 9. README 与注释中的 0–5 说明与实现一致。
 
 ## 风险与回滚

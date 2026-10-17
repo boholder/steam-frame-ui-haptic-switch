@@ -7,7 +7,7 @@ After=multi-user.target graphical.target
 Type=simple
 User=steamos
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 /home/steamos/sf-ui-haptic-switch/sf_ui_haptic_switch_daemon.py
+ExecStart=/usr/bin/python3 /home/steamos/sf-ui-haptic-switch/src/sf_ui_haptic_switch_daemon.py
 Restart=always
 RestartSec=1
 
