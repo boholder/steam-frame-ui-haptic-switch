@@ -154,6 +154,15 @@ class HandshakeTests(unittest.TestCase):
         self.assertFalse(h.due(1000))
 
 
+class SessionTests(unittest.TestCase):
+    def test_session_has_no_unused_script_identifier(self):
+        class FakeEndpoint:
+            kind = d.KIND_STEAM
+
+        session = d.Session(FakeEndpoint(), "sid", "tid", "title", "url")
+        self.assertFalse(hasattr(session, "addscript_id"))
+
+
 class StatusTests(unittest.TestCase):
     def test_ui_is_only_reported_for_the_steam_endpoint(self):
         targets = [

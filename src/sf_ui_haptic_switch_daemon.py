@@ -253,7 +253,6 @@ class Session:
         self.url = url
         self.slots = scripts_for(title, url, endpoint.kind)
         self.is_ui = SLOT_UI in self.slots
-        self.addscript_id = None
         self.handshake = Handshake()
 
     def call(self, method, params=None, timeout=10.0):
@@ -407,10 +406,9 @@ class Daemon:
 
     def _prepare_session(self, session):
         try:
-            added = session.call(
+            session.call(
                 "Page.addScriptToEvaluateOnNewDocument",
                 {"source": page_script(self.sources, session.slots)})
-            session.addscript_id = added.get("identifier")
         except Exception as e:
             _debug("addScript failed on %s: %s" % (session.title, e))
         self._inject_current(session)
