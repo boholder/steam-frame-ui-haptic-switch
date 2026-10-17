@@ -221,21 +221,24 @@ class Handshake:
     """The binding handshake for one UI session: first send + 3 retries."""
 
     def __init__(self):
+        self._reset()
+
+    def _reset(self):
         self.ok = False
         self.attempts = 0
-        self.deadline = 0.0
+        self.deadline = None
 
     def start(self):
-        self.ok = False
-        self.attempts = 0
-        self.deadline = 0.0
+        self._reset()
 
     def sent(self, now):
         self.attempts += 1
         self.deadline = now + HANDSHAKE_TIMEOUT
 
     def due(self, now):
-        return not self.ok and self.deadline and now >= self.deadline
+        return (not self.ok
+                and self.deadline is not None
+                and now >= self.deadline)
 
     def exhausted(self):
         return self.attempts >= HANDSHAKE_MAX_SENDS

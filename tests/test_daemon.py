@@ -142,6 +142,17 @@ class HandshakeTests(unittest.TestCase):
         h.ok = True
         self.assertFalse(h.due(d.HANDSHAKE_TIMEOUT * 2))
 
+    def test_start_uses_an_explicit_unscheduled_state(self):
+        h = d.Handshake()
+        self.assertIsNone(h.deadline)
+        h.sent(100)
+        h.ok = True
+        h.start()
+        self.assertFalse(h.ok)
+        self.assertEqual(h.attempts, 0)
+        self.assertIsNone(h.deadline)
+        self.assertFalse(h.due(1000))
+
 
 class StatusTests(unittest.TestCase):
     def test_ui_is_only_reported_for_the_steam_endpoint(self):
