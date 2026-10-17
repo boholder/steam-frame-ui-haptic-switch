@@ -49,13 +49,15 @@ def _write(path, data, st):
 def enable(path):
     """Set the debugger key; create the file if needed. Returns True."""
     st = os.stat(path) if os.path.exists(path) else None
+    created_dir = None
     if st is not None:
         shutil.copy2(path, path + ".bak")
         data = _load(path)
     else:
         directory = os.path.dirname(path)
         if directory:
-            os.makedirs(directory, mode=0o700, exist_ok=True)
+            os.makedirs(directory, mode=0o755, exist_ok=True)
+            created_dir = directory
         data = {}
 
     section = data.get(SECTION)
@@ -70,6 +72,8 @@ def enable(path):
         try:
             import pwd
             ent = pwd.getpwnam("steamos")
+            if created_dir:
+                os.chown(created_dir, ent.pw_uid, ent.pw_gid)
             os.chown(path, ent.pw_uid, ent.pw_gid)
         except Exception:
             pass
