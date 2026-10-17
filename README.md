@@ -1,5 +1,7 @@
 # Controller UI Haptic — a switch for the Steam Frame
 
+**English** | [简体中文](docs/README_ZH.md) | [日本語](docs/README_JP.md)
+
 On the Steam Frame, the controller's virtual cursor fires a short haptic tick
 every time it lands on a UI button. In the headset menus that feedback is
 constant, and the system offers no way to turn it off.
