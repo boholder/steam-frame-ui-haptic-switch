@@ -1,8 +1,12 @@
 # T6 — 启用 `:8087`（SteamVR Dashboard）
 
-- **状态**：backlog（本计划不做）
+- **状态**：已由 **T7** 落地（本票仅保留调研结论）
 - **阻塞于**：无（调研先行）
 - **阻塞**：无
+
+> T7 已把启用方式确定为 `steamvr.vrsettings` 的
+> `VRWebHelper.DebuggerEnabled=true`，并由 install/uninstall 负责增删。
+> 实现见 `T7-daemon-8087.md`。
 
 ## 背景
 
