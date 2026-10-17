@@ -43,7 +43,7 @@ class ScriptContractTests(unittest.TestCase):
         self.assertNotIn("sf_ui_haptic_switch_cdp.py", t)
         self.assertIn("installation_lib.sh", t)
         self.assertIn("systemctl enable", t)
-        self.assertIn("$TIMER", t)   # removed on upgrade
+        self.assertNotIn("$TIMER", t)
         self.assertIn("sf_ui_haptic_switch_settings.py", t)
         self.assertIn("--enable", t)
         self.assertNotIn("--teardown", t)
@@ -78,7 +78,7 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIn('die "$SERVICE is still running', t)
         self.assertLess(
             t.index('systemctl is-active --quiet "$SERVICE"'),
-            t.index('rm -f "$UNIT_DIR/$TIMER"'))
+            t.index('rm -f "$UNIT_DIR/$SERVICE"'))
         self.assertIn("pgrep -f '[v]rserver'", t)
         self.assertLess(
             t.index("pgrep -f '[v]rserver'"),
@@ -95,7 +95,7 @@ class ScriptContractTests(unittest.TestCase):
 
     def test_uninstall_removes_the_daemon_and_the_debugger_key(self):
         t = read(os.path.join(ROOT, "uninstall.sh"))
-        self.assertIn("$TIMER", t)
+        self.assertNotIn("$TIMER", t)
         self.assertIn("systemctl", t)
         self.assertIn("installation_lib.sh", t)
         self.assertIn("sf_ui_haptic_switch_settings.py", t)
@@ -103,7 +103,7 @@ class ScriptContractTests(unittest.TestCase):
         self.assertNotIn("--teardown", t)
         lib = read(os.path.join(ROOT, "installation_lib.sh"))
         self.assertIn("steamvr.vrsettings", lib)
-        self.assertIn("TIMER=\"sf-ui-haptic-switch.timer\"", lib)
+        self.assertNotIn("TIMER=", lib)
         self.assertIn("STATE_DIR", lib)
 
     def test_cdp_transport_lives_in_the_daemon(self):

@@ -8,7 +8,6 @@
 # The installer runs in place: the checkout is the install destination.
 DEST="$HERE"
 SERVICE="sf-ui-haptic-switch.service"
-TIMER="sf-ui-haptic-switch.timer"
 UNIT_DIR="/etc/systemd/system"
 CFG="/home/steamos/.config/openvr/config/steamvr.vrsettings"
 STATE_DIR="/home/steamos/.local/state/sf-ui-haptic-switch"

@@ -4,8 +4,7 @@
 #   sudo ./uninstall.sh
 #
 # Stop the daemon (SIGTERM removes the injected UI/wrappers best-effort),
-# remove the :8087 debug port setting, and clean up the old timer, unit,
-# and state.
+# remove the :8087 debug port setting, and clean up the unit and state.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,9 +19,8 @@ SRC="$HERE/src"
 [ "$(id -u)" -eq 0 ] || die "root required: sudo $0"
 
 # --------------------------------------------------------------------------
-step "1/4  Stop the daemon and old timer"
+step "1/4  Stop the daemon"
 # --------------------------------------------------------------------------
-systemctl disable --now "$TIMER" 2>/dev/null || true
 systemctl disable "$SERVICE" 2>/dev/null || true
 systemctl stop "$SERVICE" 2>/dev/null || true
 # SIGTERM lets the daemon tear down both endpoints best-effort.
@@ -30,10 +28,10 @@ sleep 1
 if systemctl is-active --quiet "$SERVICE"; then
   die "$SERVICE is still running; aborting uninstall so the daemon cannot keep injecting"
 fi
-ok "stopped $SERVICE (and cleaned up old $TIMER)"
+ok "stopped $SERVICE"
 
 # --------------------------------------------------------------------------
-step "2/4  Disable the SteamVR Dashboard debug port"
+step "2/4  Disable the SteamVR Dashboard debug port by changing config"
 # --------------------------------------------------------------------------
 # Remove only VRWebHelper.DebuggerEnabled; if VRWebHelper becomes empty,
 # remove the empty section too. The .bak file is not restored.
@@ -56,10 +54,10 @@ fi
 # --------------------------------------------------------------------------
 step "3/4  Remove the unit and state"
 # --------------------------------------------------------------------------
-rm -f "$UNIT_DIR/$TIMER" "$UNIT_DIR/$SERVICE"
+rm -f "$UNIT_DIR/$SERVICE"
 systemctl daemon-reload
 systemctl reset-failed "$SERVICE" 2>/dev/null || true
-ok "removed $UNIT_DIR/$TIMER and $UNIT_DIR/$SERVICE"
+ok "removed $UNIT_DIR/$SERVICE"
 
 if [ -d "$STATE_DIR" ]; then
   rm -rf "$STATE_DIR"
@@ -74,7 +72,7 @@ running() {
     && curl -s --max-time 2 "http://127.0.0.1:$1/json/list" >/dev/null 2>&1
 }
 if running 8080; then
-  warn "Steam is still running: if the switch is still visible in the headset, restart the Steam client once to clear it"
+  warn "Steam is still running: if the switch is still visible in the headset, restart the Steam or whole Frame to clean up"
 else
   ok "Steam is not running; pages will be clean on next start"
 fi
