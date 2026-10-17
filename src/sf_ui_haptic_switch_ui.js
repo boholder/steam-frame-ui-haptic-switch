@@ -2,9 +2,11 @@
  *
  * Appends a single "Controller UI Haptic" switch to the end of the Quick
  * Settings tab. Flipping it writes `localStorage['sf_ui_haptic_switch']`
- * ('0'/'1'); the gate script in every page reads that flag at call time. There
- * is no daemon and no binding, so the switch just updates the flag and its own
- * look.
+ * ('0'/'1') and then notifies the daemon through the __sfUiHapticSwitchSend
+ * binding. The daemon persists the value and pushes it to the SteamVR
+ * dashboard pages; the gate script in every page reads the flag at call time.
+ * The daemon never writes back to :8080, so there is no echo and no pending
+ * state to suppress.
  *
  * The row is cloned from a real menu toggle row, so it is pixel-identical to
  * the stock menus and survives Valve rehashing class names. Idempotent: a
@@ -24,6 +26,7 @@
   var LOOK_STYLE_ID = 'sf_ui_haptic_switch_look';
   var LABEL = 'Controller UI Haptic';
   var KEY = 'sf_ui_haptic_switch';
+  var BINDING = '__sfUiHapticSwitchSend';
   var CACHE_KEY = 'sf_ui_haptic_switch_tpl_v1';
   var BODY_KEY = 'sf_ui_haptic_switch_body_v1';
   var STATE_ATTR = 'data-sf-ui-haptic-state';
@@ -53,6 +56,19 @@
 
   function writeEnabled(on) {
     try { localStorage.setItem(KEY, on ? '1' : '0'); } catch (e) {}
+  }
+
+  /* Notify the daemon. The value it reads from localStorage is authoritative;
+   * this payload is only a "something changed" hint. A missing binding (daemon
+   * restarting) is fine: the write above already happened, and the daemon
+   * re-syncs from localStorage on reconnect. */
+  function sendEnabled(on) {
+    try {
+      var fn = window[BINDING];
+      if (typeof fn === 'function') {
+        fn(JSON.stringify({ c: 'haptic', v: !!on }));
+      }
+    } catch (e) {}
   }
 
   /* ------------------------------------------------------------------ */
@@ -489,10 +505,12 @@
     return null;
   }
 
-  /* No daemon and no echo: flipping writes the shared flag and repaints. */
+  /* No echo: flipping writes the shared flag, tells the daemon, and repaints.
+   * The daemon only pushes to :8087, never back to :8080. */
   function setEnabled(next) {
     next = !!next;
     writeEnabled(next);
+    sendEnabled(next);
     render();
     return true;
   }

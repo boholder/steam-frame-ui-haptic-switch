@@ -55,9 +55,15 @@ class ContractTests(unittest.TestCase):
         self.assertIn("Controller UI Haptic", t)
         self.assertIn("localStorage.setItem", t)
 
-    def test_neither_uses_the_old_binding(self):
+    def test_ui_notifies_the_daemon(self):
+        t = read(UI)
+        self.assertIn("__sfUiHapticSwitchSend", t)
+        self.assertIn("JSON.stringify", t)
+        self.assertIn("haptic", t)
+
+    def test_gate_never_uses_the_binding(self):
         self.assertNotIn("__sfHapticSend", read(GATE))
-        self.assertNotIn("__sfHapticSend", read(UI))
+        self.assertNotIn("__sfUiHapticSwitchSend", read(GATE))
 
     def test_scripts_do_not_replace_the_injector_namespace(self):
         for path in (GATE, UI):
