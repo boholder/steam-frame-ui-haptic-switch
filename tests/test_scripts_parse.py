@@ -109,6 +109,13 @@ class ContractTests(unittest.TestCase):
             ),
         )
 
+    def test_ui_strips_ids_from_cloned_rows(self):
+        t = read(UI)
+        self.assertIn("function stripIds", t)
+        self.assertIn("querySelectorAll('[id]')", t)
+        self.assertIn("removeAttribute('id')", t)
+        self.assertGreaterEqual(t.count("stripIds("), 3)
+
     def test_gate_never_uses_the_binding(self):
         self.assertNotIn("__sfHapticSend", read(GATE))
         self.assertNotIn("__sfUiHapticSwitchSend", read(GATE))

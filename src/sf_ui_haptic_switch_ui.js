@@ -321,6 +321,13 @@
     return row.querySelector('[id$="_Label"]') || row.querySelector('div > div');
   }
 
+  /* A clone carries the stock row's descendant ids (e.g. ..._Label), which
+   * would then collide with the original row. Strip them; no code needs them. */
+  function stripIds(row) {
+    var ids = row.querySelectorAll('[id]');
+    for (var i = 0; i < ids.length; i++) ids[i].removeAttribute('id');
+  }
+
   function setLabel(row, text) {
     var box = labelBoxOf(row);
     if (!box) return null;
@@ -416,6 +423,7 @@
       cb.setAttribute('aria-label', label);
       cb = applyToggleLook(cb, readEnabled()) || cb;
     }
+    stripIds(row);
     return { row: row, checkbox: cb };
   }
 
@@ -475,6 +483,8 @@
       cb = applyToggleLook(cb, readEnabled()) || cb;
       ui.checkbox = cb;
     }
+    var row = document.getElementById(ROW_ID);
+    if (row) stripIds(row);
   }
 
   function sync() {
