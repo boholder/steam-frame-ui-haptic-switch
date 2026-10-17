@@ -24,7 +24,6 @@
 
   var ROW_ID = 'sf_ui_haptic_switch_row';
   var LOOK_STYLE_ID = 'sf_ui_haptic_switch_look';
-  var LABEL = 'Controller UI Haptic';
   var KEY = 'sf_ui_haptic_switch';
   var BINDING = '__sfUiHapticSwitchSend';
   var CACHE_KEY = 'sf_ui_haptic_switch_tpl_v1';
@@ -72,6 +71,56 @@
         fn(JSON.stringify({ c: 'haptic', v: !!on }));
       }
     } catch (e) {}
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* label localization                                                  */
+  /* ------------------------------------------------------------------ */
+
+  /* The QAM renders in the client's language, which follows the browser
+   * locale. Unsupported locales fall back to English. */
+  var LABELS = {
+    en: 'Controller UI Haptic',
+    'zh-CN': '控制器界面震动',
+    'zh-TW': '控制器介面震動',
+    ja: 'コントローラー UI 振動'
+  };
+
+  function languageTag(value) {
+    if (!value) return null;
+    var tag = String(value).toLowerCase().replace(/_/g, '-');
+    if (tag.indexOf('zh') === 0) {
+      /* zh-Hant, zh-TW, zh-HK and zh-MO all read Traditional. */
+      return /^zh-(hant|tw|hk|mo)/.test(tag) ? 'zh-TW' : 'zh-CN';
+    }
+    if (tag.indexOf('ja') === 0) return 'ja';
+    if (tag.indexOf('en') === 0) return 'en';
+    return null;
+  }
+
+  function detectLang() {
+    var candidates = [];
+    try {
+      if (navigator.languages && navigator.languages.length) {
+        candidates = candidates.concat(
+          Array.prototype.slice.call(navigator.languages));
+      }
+    } catch (e) {}
+    try { if (navigator.language) candidates.push(navigator.language); } catch (e) {}
+    /* The client may localize the DOM even when the browser locale differs. */
+    try {
+      var root = document.documentElement;
+      if (root && root.lang) candidates.push(root.lang);
+    } catch (e) {}
+    for (var i = 0; i < candidates.length; i++) {
+      var lang = languageTag(candidates[i]);
+      if (lang) return lang;
+    }
+    return 'en';
+  }
+
+  function labelText() {
+    return LABELS[detectLang()] || LABELS.en;
   }
 
   /* ------------------------------------------------------------------ */
@@ -442,7 +491,7 @@
     var existing = document.getElementById(ROW_ID);
     if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
 
-    var built = toggleRow(LABEL, ICON_HAPTIC);
+    var built = toggleRow(labelText(), ICON_HAPTIC);
     if (!built) return false;
     var row = built.row;
 
