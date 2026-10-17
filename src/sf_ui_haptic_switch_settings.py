@@ -20,7 +20,7 @@ import stat
 import sys
 
 SECTION = "VRWebHelper"
-KEY = "DebuggerEnabled"
+DEBUGGER_KEY = "DebuggerEnabled"
 
 
 def _load(path):
@@ -64,7 +64,7 @@ def enable(path):
     if not isinstance(section, dict):
         section = {}
         data[SECTION] = section
-    section[KEY] = True
+    section[DEBUGGER_KEY] = True
 
     _write(path, data, st)
 
@@ -87,13 +87,18 @@ def disable(path):
     st = os.stat(path)
     data = _load(path)
 
+    changed = False
     section = data.get(SECTION)
     if isinstance(section, dict):
-        section.pop(KEY, None)
+        if DEBUGGER_KEY in section:
+            section.pop(DEBUGGER_KEY)
+            changed = True
         if not section:
             data.pop(SECTION, None)
 
-    _write(path, data, st)
+    # Do not reorder/rewrite a file that never had the key.
+    if changed:
+        _write(path, data, st)
     return True
 
 

@@ -95,6 +95,16 @@ class DisableTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertFalse(s.disable(os.path.join(tmp, "nope.vrsettings")))
 
+    def test_leaves_the_file_untouched_when_the_key_is_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write(os.path.join(tmp, "steamvr.vrsettings"),
+                         {"GpuSpeed": {"gpuSpeed0": 1}})
+            with open(path, encoding="utf-8") as f:
+                before = f.read()
+            s.disable(path)
+            with open(path, encoding="utf-8") as f:
+                self.assertEqual(f.read(), before)
+
 
 if __name__ == "__main__":
     unittest.main()
