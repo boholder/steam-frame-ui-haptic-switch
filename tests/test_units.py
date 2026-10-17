@@ -75,7 +75,7 @@ class ScriptContractTests(unittest.TestCase):
     def test_uninstall_aborts_while_the_service_is_active(self):
         t = read(os.path.join(ROOT, "uninstall.sh"))
         self.assertIn('systemctl is-active --quiet "$SERVICE"', t)
-        self.assertIn('die "$SERVICE 仍在运行', t)
+        self.assertIn('die "$SERVICE is still running', t)
         self.assertLess(
             t.index('systemctl is-active --quiet "$SERVICE"'),
             t.index('rm -f "$UNIT_DIR/$TIMER"'))

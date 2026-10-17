@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Steam Frame 「Controller UI Haptic」开关 —— 卸载脚本
+# Steam Frame "Controller UI Haptic" switch — uninstall script
 #
 #   sudo ./uninstall.sh
 #
-# 停 daemon（SIGTERM 会尽力摘掉注入的 UI/包装）、删除 :8087 调试端口开关、
-# 清理 old timer、单元、安装目录与状态文件。
+# Stop the daemon (SIGTERM removes the injected UI/wrappers best-effort),
+# remove the :8087 debug port setting, and clean up the old timer, unit,
+# and state.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,77 +17,78 @@ LIB="$HERE/installation_lib.sh"
 
 SRC="$HERE/src"
 
-[ "$(id -u)" -eq 0 ] || die "需要 root：sudo $0"
+[ "$(id -u)" -eq 0 ] || die "root required: sudo $0"
 
 # --------------------------------------------------------------------------
-step "1/4  停止 daemon 与旧 timer"
+step "1/4  Stop the daemon and old timer"
 # --------------------------------------------------------------------------
 systemctl disable --now "$TIMER" 2>/dev/null || true
 systemctl disable "$SERVICE" 2>/dev/null || true
 systemctl stop "$SERVICE" 2>/dev/null || true
-# SIGTERM 让 daemon 对两个端点尽力 teardown。
+# SIGTERM lets the daemon tear down both endpoints best-effort.
 sleep 1
 if systemctl is-active --quiet "$SERVICE"; then
-  die "$SERVICE 仍在运行；中止卸载，避免 daemon 继续注入"
+  die "$SERVICE is still running; aborting uninstall so the daemon cannot keep injecting"
 fi
-ok "已停止 $SERVICE（并清理旧 $TIMER）"
+ok "stopped $SERVICE (and cleaned up old $TIMER)"
 
 # --------------------------------------------------------------------------
-step "2/4  关闭 SteamVR Dashboard 调试端口"
+step "2/4  Disable the SteamVR Dashboard debug port"
 # --------------------------------------------------------------------------
-# 只删除 VRWebHelper.DebuggerEnabled；若 VRWebHelper 变空，连空节一起删。
-# 不恢复 .bak。
+# Remove only VRWebHelper.DebuggerEnabled; if VRWebHelper becomes empty,
+# remove the empty section too. The .bak file is not restored.
 SETTINGS="$SRC/sf_ui_haptic_switch_settings.py"
 
 if pgrep -f '[v]rserver' >/dev/null 2>&1; then
-  warn "SteamVR 正在运行；删除 DebuggerEnabled 后，SteamVR 退出时可能回写配置"
+  warn "SteamVR is running; after DebuggerEnabled is removed, SteamVR may write its in-memory config back on exit"
 fi
 
 if [ ! -f "$SETTINGS" ]; then
-  warn "找不到 settings helper，跳过配置清理"
+  warn "settings helper not found; skipping config cleanup"
 elif [ ! -f "$CFG" ]; then
-  warn "$CFG 不存在，跳过"
+  warn "$CFG not found; skipping"
 elif python3 "$SETTINGS" --disable "$CFG"; then
-  ok "已从 $CFG 删除 VRWebHelper.DebuggerEnabled（.bak 保留）"
+  ok "removed VRWebHelper.DebuggerEnabled from $CFG (.bak kept)"
 else
-  warn "无法修改 $CFG；请手动删除 VRWebHelper.DebuggerEnabled"
+  warn "could not modify $CFG; remove VRWebHelper.DebuggerEnabled manually"
 fi
 
 # --------------------------------------------------------------------------
-step "3/4  删除单元与状态"
+step "3/4  Remove the unit and state"
 # --------------------------------------------------------------------------
 rm -f "$UNIT_DIR/$TIMER" "$UNIT_DIR/$SERVICE"
 systemctl daemon-reload
 systemctl reset-failed "$SERVICE" 2>/dev/null || true
-ok "删除 $UNIT_DIR/$TIMER 与 $UNIT_DIR/$SERVICE"
+ok "removed $UNIT_DIR/$TIMER and $UNIT_DIR/$SERVICE"
 
 if [ -d "$STATE_DIR" ]; then
   rm -rf "$STATE_DIR"
-  ok "删除状态目录 $STATE_DIR"
+  ok "removed state directory $STATE_DIR"
 fi
 
 # --------------------------------------------------------------------------
-step "4/4  完成"
+step "4/4  Done"
 # --------------------------------------------------------------------------
 running() {
   command -v curl >/dev/null \
     && curl -s --max-time 2 "http://127.0.0.1:$1/json/list" >/dev/null 2>&1
 }
 if running 8080; then
-  warn "Steam 仍在运行：若头显里仍能看到开关，重启一次 Steam 客户端即可清掉"
+  warn "Steam is still running: if the switch is still visible in the headset, restart the Steam client once to clear it"
 else
-  ok "Steam 未运行，下次启动时页面是干净的"
+  ok "Steam is not running; pages will be clean on next start"
 fi
 if running 8087; then
-  warn "SteamVR 仍在运行：Dashboard 页面上的包装会在下一次 reload 后消失"
+  warn "SteamVR is still running: Dashboard wrappers disappear after the next reload"
 fi
 
 cat <<'EOF'
 
 ────────────────────────────────────────────────────────────
- 卸载完成
+  Uninstall complete
 
- 手柄震动恢复出厂状态；:8087 的调试端口开关已删除。
- 配置文件备份（.bak）保留，如需恢复可手动改回。
+  Controller haptics are back to stock; the :8087 debug port
+  setting has been removed. The config backup (.bak) is kept;
+  restore it manually if needed.
 ────────────────────────────────────────────────────────────
 EOF
