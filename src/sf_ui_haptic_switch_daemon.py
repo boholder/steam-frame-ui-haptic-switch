@@ -381,6 +381,7 @@ class Daemon:
         key = (endpoint.port, target_id)
         if key in self.target_sessions:
             return
+        session_id = None
         try:
             result = endpoint.call("Target.attachToTarget", {
                 "targetId": target_id,
@@ -402,6 +403,13 @@ class Daemon:
         except Exception as e:
             log("attach failed on :%d target %s: %s" % (
                 endpoint.port, info.get("title"), e))
+            if session_id:
+                try:
+                    endpoint.call(
+                        "Target.detachFromTarget",
+                        {"sessionId": session_id}, timeout=2.0)
+                except Exception:
+                    pass
             self._drop_target(endpoint, target_id)
 
     def _prepare_session(self, session):

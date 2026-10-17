@@ -163,6 +163,46 @@ class SessionTests(unittest.TestCase):
         self.assertFalse(hasattr(session, "addscript_id"))
 
 
+class AttachFailureTests(unittest.TestCase):
+    class FakeEndpoint:
+        kind = d.KIND_STEAM
+        port = 8080
+
+        def __init__(self):
+            self.calls = []
+            self.fail_on = None
+
+        def call(self, method, params=None, session=None, timeout=10.0):
+            self.calls.append((method, dict(params or {}), session))
+            if method == self.fail_on:
+                raise cdp.WSError("boom")
+            if method == "Target.attachToTarget":
+                return {"sessionId": "sid-1"}
+            return {}
+
+    def test_attach_failure_detaches_the_browser_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = d.Daemon(
+                8080, 8087, {"gate": "g", "ui": "u"},
+                os.path.join(tmp, "state.json"))
+            endpoint = self.FakeEndpoint()
+            endpoint.fail_on = "Runtime.enable"
+            info = {
+                "targetId": "tid-1", "type": "page",
+                "title": "systemui", "url": "",
+            }
+
+            daemon._attach(endpoint, info)
+
+            methods = [c[0] for c in endpoint.calls]
+            self.assertIn("Target.detachFromTarget", methods)
+            detach = [c for c in endpoint.calls
+                      if c[0] == "Target.detachFromTarget"][0]
+            self.assertEqual(detach[1], {"sessionId": "sid-1"})
+            self.assertEqual(daemon.sessions, {})
+            self.assertEqual(daemon.target_sessions, {})
+
+
 class StatusTests(unittest.TestCase):
     def test_ui_is_only_reported_for_the_steam_endpoint(self):
         targets = [
