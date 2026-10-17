@@ -1,13 +1,13 @@
 [Unit]
 Description=Steam Frame "Controller UI Haptic" switch (daemon)
-Documentation=file:///home/steamos/sf-ui-haptic-switch/README.md
+Documentation=file://INSTALLATION_PATH/README.md
 After=multi-user.target graphical.target
 
 [Service]
 Type=simple
 User=steamos
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 /home/steamos/sf-ui-haptic-switch/src/sf_ui_haptic_switch_daemon.py
+ExecStart=/usr/bin/python3 INSTALLATION_PATH/src/sf_ui_haptic_switch_daemon.py
 Restart=always
 RestartSec=1
 

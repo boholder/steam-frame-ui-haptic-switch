@@ -16,7 +16,7 @@ class UnitFileTests(unittest.TestCase):
         t = read(os.path.join(SRC, "sf-ui-haptic-switch.service"))
         self.assertIn("Type=simple", t)
         self.assertIn("User=steamos", t)
-        self.assertIn("/src/sf_ui_haptic_switch_daemon.py", t)
+        self.assertIn("INSTALLATION_PATH/src/sf_ui_haptic_switch_daemon.py", t)
         self.assertIn("Restart=always", t)
         self.assertIn("RestartSec=1", t)
         self.assertNotIn("Type=oneshot", t)
@@ -58,6 +58,11 @@ class ScriptContractTests(unittest.TestCase):
         self.assertNotIn("copy sf_", t)
         self.assertNotIn('install -d "$DEST"', t)
         self.assertIn('install -m 0644 "$SRC/$SERVICE"', t)
+
+    def test_install_replaces_the_service_placeholder(self):
+        t = read(os.path.join(ROOT, "install.sh"))
+        self.assertIn("INSTALLATION_PATH", t)
+        self.assertIn("ESCAPED_DEST", t)
 
     def test_uninstall_does_not_delete_the_checkout(self):
         t = read(os.path.join(ROOT, "uninstall.sh"))

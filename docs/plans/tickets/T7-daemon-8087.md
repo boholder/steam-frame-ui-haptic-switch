@@ -9,7 +9,7 @@
 ## 实现状态
 
 - 分支：`t7-daemon-8087`
-- 单测：`python -m unittest discover -s tests` → 54 passed，1 skipped
+- 单测：`python -m unittest discover -s tests` → 55 passed，1 skipped
   （Windows 上跳过 POSIX mode 断言）
 - 文件：`src/sf_ui_haptic_switch_daemon.py`、`sf_ui_haptic_switch_cdp.py`、
   `sf_ui_haptic_switch_settings.py`、`installation_lib.sh`、
@@ -213,13 +213,14 @@ EOverlayHapticEffect:
 ```ini
 [Unit]
 Description=Steam Frame "Controller UI Haptic" switch (daemon)
+Documentation=file://INSTALLATION_PATH/README.md
 After=multi-user.target graphical.target
 
 [Service]
 Type=simple
 User=steamos
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 /home/steamos/sf-ui-haptic-switch/sf_ui_haptic_switch_daemon.py
+ExecStart=/usr/bin/python3 INSTALLATION_PATH/src/sf_ui_haptic_switch_daemon.py
 Restart=always
 RestartSec=1
 
@@ -228,6 +229,8 @@ WantedBy=multi-user.target
 ```
 
 - 删除 `src/sf-ui-haptic-switch.timer`。
+- `install.sh` 把 unit 中的 `INSTALLATION_PATH` 替换为仓库根目录（`$HERE`），
+  并校验没有残留占位符。
 - `install.sh` 升级路径：停用并删除旧 timer，停旧 service，重写 unit，`daemon-reload`，
   `enable --now` 新 service；等待数秒确认 active，并提示 `:8087` 需 SteamVR 重启后才出现。
   **安装不复制仓库**：`ExecStart` 直接指向 `<checkout>/src/sf_ui_haptic_switch_daemon.py`。
