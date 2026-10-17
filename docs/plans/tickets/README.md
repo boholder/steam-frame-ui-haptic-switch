@@ -9,6 +9,7 @@ T0 设备事实探测 (done) ─┬─> T1 注入器(oneshot) ─┬─> T3 单�
 T4 文档与 .gitignore（无阻塞）
 T6 启用 :8087（调研结论，已由 T7 落地）
 T7 常驻 daemon + :8087 gate（基线：T1/T2/T3；替代 T6）
+T7 (done) ─> T8 审计确认的运行时/UI 修复
 ```
 
 | Ticket | 标题 | 阻塞于 | 阻塞 |
@@ -21,8 +22,10 @@ T7 常驻 daemon + :8087 gate（基线：T1/T2/T3；替代 T6）
 | T5 | 实机端到端验收 | T1, T2, T3 | 无 |
 | T6 | 启用 `:8087`（SteamVR Dashboard） | 无（调研先行） | 已由 T7 落地 |
 | T7 | 常驻 daemon + `:8087` gate | T1, T2, T3（现状基线） | 无 |
+| T8 | 审计确认的运行时/UI 修复 | T7(done) | 无 |
 
 - **重命名/前缀统一**折进各组件 ticket。
 - 当前设计见 `T7-daemon-8087.md`；T0 结果见 `../../research/t0-device-probe.md`。
-- T7 已在分支 `t7-daemon-8087` 实现（单测通过；真机验收待执行）。
+- T7 已实现（master；原 `t7-daemon-8087` 分支已删除）；真机验收待执行。
+- T8 只列已确认的修复项，先不实现；见 `T8-cleanup-fixes.md`。
 - GitHub remote 已配置，但本计划的 ticket 仍以本地文件为准（T7 Q7 A）。
