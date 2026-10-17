@@ -212,7 +212,7 @@
       var diff = classList(on).filter(function (c) {
         return c !== 'gpfocus' && offSet.indexOf(c) < 0;
       });
-      if (diff.length) extra = diff.join(' ');
+      if (diff.length === 1) extra = diff[0];
     }
     return {
       toggleOnExtra: extra,

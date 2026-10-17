@@ -116,6 +116,12 @@ class ContractTests(unittest.TestCase):
         self.assertIn("removeAttribute('id')", t)
         self.assertGreaterEqual(t.count("stripIds("), 3)
 
+    def test_ui_harvests_only_a_single_toggle_class(self):
+        t = read(UI)
+        self.assertIn("diff.length === 1", t)
+        self.assertIn("extra = diff[0]", t)
+        self.assertNotIn("diff.join(' ')", t)
+
     def test_ui_throttles_before_marking_a_pointerdown(self):
         t = read(UI)
         m = re.search(r"function flip\(ev\) \{(.*?)\n    \}", t, re.S)
