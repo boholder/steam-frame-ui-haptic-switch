@@ -62,7 +62,15 @@ class ScriptContractTests(unittest.TestCase):
     def test_install_replaces_the_service_placeholder(self):
         t = read(os.path.join(ROOT, "install.sh"))
         self.assertIn("INSTALLATION_PATH", t)
-        self.assertIn("ESCAPED_DEST", t)
+        self.assertNotIn("ESCAPED_DEST", t)
+        self.assertIn('sed -i "s|INSTALLATION_PATH|$DEST|g"', t)
+
+    def test_scripts_use_the_src_directory_without_a_fallback(self):
+        for name in ("install.sh", "uninstall.sh"):
+            t = read(os.path.join(ROOT, name))
+            self.assertIn('SRC="$HERE/src"', t)
+            self.assertNotIn('[ -d "$SRC" ]', t)
+            self.assertNotIn('|| SRC="$HERE"', t)
 
     def test_uninstall_aborts_while_the_service_is_active(self):
         t = read(os.path.join(ROOT, "uninstall.sh"))

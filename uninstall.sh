@@ -15,7 +15,6 @@ LIB="$HERE/installation_lib.sh"
 . "$LIB"
 
 SRC="$HERE/src"
-[ -d "$SRC" ] || SRC="$HERE"
 
 [ "$(id -u)" -eq 0 ] || die "需要 root：sudo $0"
 

@@ -12,7 +12,6 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$HERE/src"
-[ -d "$SRC" ] || SRC="$HERE"
 
 LIB="$HERE/installation_lib.sh"
 [ -f "$LIB" ] || { printf 'missing %s\n' "$LIB" >&2; exit 1; }
@@ -42,8 +41,7 @@ step "2/5  安装 systemd 单元"
 # --------------------------------------------------------------------------
 # 仓库目录就是安装目录：不复制文件，unit 直接指向 $SRC。
 install -m 0644 "$SRC/$SERVICE" "$UNIT_DIR/$SERVICE"
-ESCAPED_DEST=$(printf '%s' "$DEST" | sed 's/[|&\\]/\\&/g')
-sed -i "s|INSTALLATION_PATH|$ESCAPED_DEST|g" "$UNIT_DIR/$SERVICE"
+sed -i "s|INSTALLATION_PATH|$DEST|g" "$UNIT_DIR/$SERVICE"
 if grep -q 'INSTALLATION_PATH' "$UNIT_DIR/$SERVICE"; then
   die "单元中的 INSTALLATION_PATH 没有被替换"
 fi
