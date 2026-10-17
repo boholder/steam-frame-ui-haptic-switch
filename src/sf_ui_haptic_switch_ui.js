@@ -127,12 +127,14 @@
   /* icons                                                               */
   /* ------------------------------------------------------------------ */
 
-  function svg(inner) {
-    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36"' +
-      ' fill="none" width="100%" height="100%">' + inner + '</svg>';
+  function svg(inner, vb) {
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="' +
+      (vb || '0 0 36 36') + '" fill="none" width="100%" height="100%">' +
+      inner + '</svg>';
   }
 
-  /* vibration icon */
+  /* vibration icon; the paths are 24x24, so use a matching viewBox instead of
+   * the 36x36 default (the stock 36 box made it look undersized). */
   var ICON_HAPTIC = svg(
       '<g fill="currentColor">' +
       '<path fill="none" d="M0 0h24v24H0z"/>' +
@@ -145,7 +147,8 @@
       'a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1h3.889' +
       'l5.294-4.332a.5.5 0 0 1 .704.07z' +
       'M11 7.22L7.603 9.999H4V14l3.603-.001L11 16.779V7.22z"/>' +
-      '</g>'
+      '</g>',
+      '0 0 24 24'
   );
 
   /* ------------------------------------------------------------------ */
