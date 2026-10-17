@@ -90,6 +90,12 @@ Installed layout:
 The service executes `src/sf_ui_haptic_switch_daemon.py` directly from the
 checkout. Moving or deleting the checkout requires a reinstall.
 
+`install.sh` runs in place: it sets `HERE` to this checkout, sources
+`installation_lib.sh` (which sets `DEST="$HERE"`), and writes the unit with
+`INSTALLATION_PATH` replaced by the checkout path. It copies no repository
+files. `uninstall.sh` removes the unit, state and `VRWebHelper.DebuggerEnabled`,
+but leaves the checkout.
+
 ## Limitations
 
 - `:8087` must be enabled through `VRWebHelper.DebuggerEnabled = true` in

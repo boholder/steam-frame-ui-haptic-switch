@@ -1,5 +1,5 @@
 [Unit]
-Description=Steam Frame "Controller UI Haptic" switch (daemon)
+Description=Steam Frame UI Haptic Switch daemon
 Documentation=file://INSTALLATION_PATH/README.md
 After=multi-user.target graphical.target
 

@@ -6,6 +6,18 @@ Think in English, reply in Chinese.
 
 A Steam Frame plugin that adds a switch at the end of Quick Access Menu → Quick Settings. The switch turns haptic feedback on or off for the controller's virtual cursor as it touches a UI button.
 
+## Checks
+
+- All checks: `bash scripts/check.sh`
+- Full unit suite: `python -m unittest discover -s tests`
+- One test file: `python -m unittest tests.test_daemon -v`
+- Shell syntax: `bash -n install.sh && bash -n uninstall.sh && bash -n installation_lib.sh`
+
+## Device
+
+Read-only endpoint probe: `scripts/probe-device.sh`. Device facts:
+`docs/research/t0-device-probe.md`. SSH alias setup: `scripts/setup-sf-ssh.sh`.
+
 ## Agent skills
 
 ### Issue tracker

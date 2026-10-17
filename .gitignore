@@ -8,5 +8,5 @@ riderModule.iml
 ref/
 
 # python
-__pycache__/
+**/__pycache__/
 *.pyc
