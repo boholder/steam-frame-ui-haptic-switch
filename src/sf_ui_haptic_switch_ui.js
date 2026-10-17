@@ -423,6 +423,14 @@
   /* mount / render                                                      */
   /* ------------------------------------------------------------------ */
 
+  function removeSections() {
+    var sections = [].slice.call(
+      document.querySelectorAll('[' + SECTION_ATTR + ']'));
+    sections.forEach(function (el) {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    });
+  }
+
   function mount() {
     if (tornDown) return false;
     var p = parts();
@@ -436,11 +444,7 @@
     }
     if (!tpl) return false;
 
-    var stale = [].slice.call(
-      document.querySelectorAll('[' + SECTION_ATTR + ']'));
-    stale.forEach(function (el) {
-      if (el.parentNode) el.parentNode.removeChild(el);
-    });
+    removeSections();
     var existing = document.getElementById(ROW_ID);
     if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
 
@@ -585,11 +589,7 @@
       cleanups = [];
       var row = document.getElementById(ROW_ID);
       if (row && row.parentNode) row.parentNode.removeChild(row);
-      var sections = [].slice.call(
-        document.querySelectorAll('[' + SECTION_ATTR + ']'));
-      sections.forEach(function (el) {
-        if (el.parentNode) el.parentNode.removeChild(el);
-      });
+      removeSections();
       var look = document.getElementById(LOOK_STYLE_ID);
       if (look && look.parentNode) look.parentNode.removeChild(look);
       ui = null; tpl = null;

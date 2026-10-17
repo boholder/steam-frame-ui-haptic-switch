@@ -1,4 +1,5 @@
 import os
+import re
 import unittest
 
 try:
@@ -93,13 +94,20 @@ class ContractTests(unittest.TestCase):
     def test_ui_tears_down_its_section_wrapper(self):
         t = read(UI)
         self.assertIn("data-sf-ui-haptic-section", t)
-        self.assertIn("SECTION_ATTR", t)
+        self.assertIn("function removeSections", t)
+        self.assertGreaterEqual(t.count("removeSections();"), 2)
 
     def test_ui_blocks_queued_sync_after_teardown(self):
         t = read(UI)
         self.assertIn("tornDown", t)
         self.assertIn("clearTimeout(scheduleTimer)", t)
-        self.assertIn("if (tornDown) return;", t)
+        self.assertRegex(
+            t,
+            re.compile(
+                r"function schedule\(\).*?if \(tornDown\) return;.*?sync\(\)",
+                re.S,
+            ),
+        )
 
     def test_gate_never_uses_the_binding(self):
         self.assertNotIn("__sfHapticSend", read(GATE))
