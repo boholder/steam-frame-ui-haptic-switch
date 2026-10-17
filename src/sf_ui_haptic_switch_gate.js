@@ -16,6 +16,10 @@
  *   4 Sliding      continuous slider drag
  *   5 SlidingEdge  slider reaches its end stop
  *
+ * 中文对照：0 None 无效果；1 ButtonEnter 光标进入按钮；2 ButtonLeave 光标离开按钮；
+ * 3 Snap 滑杆/列表吸附；4 Sliding 拖动滑杆；5 SlidingEdge 拖到端点。
+ * 本插件只丢弃 1/2（按钮 hover），保留 3/4/5（滑杆/吸附）。
+ *
  * This gate only drops 1/2 (button hover). 3/4/5 (slider and snap feedback)
  * are deliberately left alone: the product promise is to remove the
  * cursor-lands-on-a-button tick, not every UI haptic.
@@ -104,37 +108,43 @@
     return true;
   }
 
-  function install() {
-    var installed = 0;
-
-    /* Steam client UI (:8080): effect is the first argument. */
+  /* Steam's bridge takes the effect first; VRHTML's takes the overlay handle
+   * first. One parametrised wrapper covers both. */
+  function bridgeSpecs() {
+    var specs = [];
     try {
-      var sc = window.SteamClient;
-      var sov = sc && sc.OpenVR;
+      var sov = window.SteamClient && window.SteamClient.OpenVR;
       if (sov && typeof sov.TriggerOverlayHapticEffect === 'function') {
-        if (wrap(sov, 'TriggerOverlayHapticEffect', function (original) {
-          return function (effect) {
-            if (shouldDrop(effect)) return undefined;
-            return original.apply(this, arguments);
-          };
-        })) installed += 1;
+        specs.push({ owner: sov, effectArg: 0 });
       }
     } catch (e) {}
-
-    /* SteamVR Dashboard (:8087): effect is the second argument. */
     try {
-      var vh = window.VRHTML;
-      var vov = vh && vh.VROverlay;
+      var vov = window.VRHTML && window.VRHTML.VROverlay;
       if (vov && typeof vov.TriggerOverlayHapticEffect === 'function') {
-        if (wrap(vov, 'TriggerOverlayHapticEffect', function (original) {
-          return function (handle, effect) {
-            if (shouldDrop(effect)) return undefined;
-            return original.apply(this, arguments);
-          };
-        })) installed += 1;
+        specs.push({ owner: vov, effectArg: 1 });
       }
     } catch (e) {}
+    return specs;
+  }
 
+  function patcher(effectArg) {
+    return function (original) {
+      return function () {
+        if (shouldDrop(arguments[effectArg])) return undefined;
+        return original.apply(this, arguments);
+      };
+    };
+  }
+
+  function install() {
+    var specs = bridgeSpecs();
+    var installed = 0;
+    for (var i = 0; i < specs.length; i++) {
+      if (wrap(specs[i].owner, 'TriggerOverlayHapticEffect',
+               patcher(specs[i].effectArg))) {
+        installed += 1;
+      }
+    }
     return installed > 0;
   }
 

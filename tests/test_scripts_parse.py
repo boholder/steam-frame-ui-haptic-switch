@@ -42,8 +42,9 @@ class ContractTests(unittest.TestCase):
         self.assertIn("VRHTML", t)
         self.assertIn("VROverlay", t)
         # Steam's bridge takes the effect first; VRHTML's takes it second.
-        self.assertIn("function (effect)", t)
-        self.assertIn("function (handle, effect)", t)
+        self.assertIn("effectArg: 0", t)
+        self.assertIn("effectArg: 1", t)
+        self.assertIn("arguments[effectArg]", t)
 
     def test_gate_documents_the_effect_enum(self):
         t = read(GATE)
@@ -56,6 +57,7 @@ class ContractTests(unittest.TestCase):
         ):
             self.assertIn(line, t)
         self.assertIn("only drops 1/2", t)
+        self.assertIn("只丢弃 1/2", t)
 
     def test_ui_owns_the_localstorage_key(self):
         t = read(UI)
