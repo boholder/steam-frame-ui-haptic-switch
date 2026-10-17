@@ -357,6 +357,7 @@ class Endpoint:
         self.reader = None
         self.alive = False
         self.discovered = False
+        self.ever_connected = False
         self.next_connect = 0.0
         self._id = 0
         self._id_lock = threading.Lock()
@@ -535,10 +536,16 @@ class Daemon:
         if endpoint.alive:
             return
         self._drop_endpoint_sessions(endpoint)
+        # A connection that died must back off; an endpoint that has never
+        # been seen (Steam still starting) is allowed to try immediately.
+        if endpoint.ever_connected and endpoint.next_connect == 0:
+            endpoint.next_connect = now + RETRY_SECONDS
         if now < endpoint.next_connect:
             return
         try:
             endpoint.connect()
+            endpoint.ever_connected = True
+            endpoint.next_connect = 0.0
             log("attached endpoint :%d" % endpoint.port)
         except Exception as e:
             endpoint.close()
