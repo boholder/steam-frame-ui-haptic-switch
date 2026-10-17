@@ -6,6 +6,10 @@ Think in English, reply in Chinese.
 
 A Steam Frame plugin that adds a switch at the end of Quick Access Menu → Quick Settings. The switch turns haptic feedback on or off for the controller's virtual cursor as it touches a UI button.
 
+## Workflow
+
+- Implement tickets directly on the main branch. Do not create a git branch or worktree per ticket.
+
 ## Checks
 
 - All checks: `bash scripts/check.sh`
