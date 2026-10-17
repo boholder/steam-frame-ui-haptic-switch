@@ -371,19 +371,21 @@ class Endpoint:
             raise WSError("no browser webSocketDebuggerUrl on :%d" % self.port)
         if self.reader is not None:
             self.close()
-        self.ws = WebSocket(ws_url)
+        ws = WebSocket(ws_url)
+        self.ws = ws
         self.alive = True
         self.discovered = False
         self.reader = threading.Thread(
-            target=self._read_loop, name="cdp-%d" % self.port, daemon=True)
+            target=self._read_loop, args=(ws,),
+            name="cdp-%d" % self.port, daemon=True)
         self.reader.start()
         self.call("Target.setDiscoverTargets", {"discover": True})
         self.discovered = True
 
-    def _read_loop(self):
+    def _read_loop(self, ws):
         try:
-            while self.alive:
-                text = self.ws.recv_text()
+            while self.alive and self.ws is ws:
+                text = ws.recv_text()
                 msg = json.loads(text)
                 if "id" in msg:
                     with self._pending_lock:
@@ -406,8 +408,12 @@ class Endpoint:
         except Exception as e:
             _debug("endpoint :%d reader stopped: %s" % (self.port, e))
         finally:
-            self.alive = False
-            self._fail_pending(WSError("endpoint :%d disconnected" % self.port))
+            # Only the reader that owns the current socket may flip the state;
+            # a stale reader must not clobber a freshly reconnected endpoint.
+            if self.ws is ws:
+                self.alive = False
+                self._fail_pending(
+                    WSError("endpoint :%d disconnected" % self.port))
 
     def _fail_pending(self, error):
         with self._pending_lock:
