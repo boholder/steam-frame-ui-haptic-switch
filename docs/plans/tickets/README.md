@@ -24,4 +24,5 @@ T7 常驻 daemon + :8087 gate（基线：T1/T2/T3；替代 T6）
 
 - **重命名/前缀统一**折进各组件 ticket。
 - 当前设计见 `T7-daemon-8087.md`；T0 结果见 `../../research/t0-device-probe.md`。
+- T7 已在分支 `t7-daemon-8087` 实现（单测通过；真机验收待执行）。
 - GitHub remote 已配置，但本计划的 ticket 仍以本地文件为准（T7 Q7 A）。

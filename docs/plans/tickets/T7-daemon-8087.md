@@ -1,10 +1,20 @@
 # T7 — 常驻 daemon + SteamVR Dashboard（`:8087`）震动 gate
 
-- **状态**：todo
+- **状态**：done（分支 `t7-daemon-8087`；真机验收待执行）
 - **载体**：本地 ticket（Q7 A）
 - **阻塞于**：无（T0 已完成；T1/T2/T3 的现状即基线）
 - **阻塞**：无
 - **替代**：T6（启用 `:8087` 的调研由本票落地）
+
+## 实现状态
+
+- 分支：`t7-daemon-8087`
+- 单测：`python -m unittest discover -s tests` → 44 passed，1 skipped
+  （Windows 上跳过 POSIX mode 断言）
+- 文件：`src/sf_ui_haptic_switch_daemon.py`、`sf_ui_haptic_switch_settings.py`、
+  `sf_ui_haptic_switch_gate.js`、`sf_ui_haptic_switch_ui.js`、
+  `sf-ui-haptic-switch.service`、`install.sh`、`uninstall.sh`、`README.md`、`tests/`
+- 真机验收：待执行（见文末清单）
 
 ## 背景
 
