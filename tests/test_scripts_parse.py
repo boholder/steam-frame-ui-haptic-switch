@@ -114,7 +114,11 @@ class ContractTests(unittest.TestCase):
         self.assertIn("function stripIds", t)
         self.assertIn("querySelectorAll('[id]')", t)
         self.assertIn("removeAttribute('id')", t)
-        self.assertGreaterEqual(t.count("stripIds("), 3)
+        for name in ("toggleRow", "render"):
+            m = re.search(
+                r"function %s\([^)]*\) \{(.*?)\n  \}" % name, t, re.S)
+            self.assertIsNotNone(m, name)
+            self.assertIn("stripIds(row)", m.group(1), name)
 
     def test_ui_harvests_only_a_single_toggle_class(self):
         t = read(UI)
@@ -127,10 +131,15 @@ class ContractTests(unittest.TestCase):
         m = re.search(r"function flip\(ev\) \{(.*?)\n    \}", t, re.S)
         self.assertIsNotNone(m)
         body = m.group(1)
-        self.assertIn("if (ev.type === 'pointerdown')", body)
-        self.assertIn(
+        pointer = re.search(
+            r"if \(ev\.type === 'pointerdown'\) \{(.*?)\}", body, re.S)
+        self.assertIsNotNone(pointer)
+        self.assertNotIn("preventDefault", pointer.group(1))
+        prevent = body.index(
             "if (ev.type !== 'pointerdown' && ev.preventDefault) "
-            "ev.preventDefault();", body)
+            "ev.preventDefault();")
+        self.assertLess(body.index("ev.button !== 0"), prevent)
+        self.assertLess(prevent, body.index("lastFlip < 250"))
         self.assertGreater(
             body.index("sawDown = now"), body.index("lastFlip < 250"))
 
@@ -138,8 +147,11 @@ class ContractTests(unittest.TestCase):
         t = read(GATE)
         self.assertIn("var stopped = false;", t)
         self.assertIn("if (stopped) return false;", t)
-        self.assertIn("stopped = true;", t)
-        self.assertIn("已排队", t)
+        m = re.search(r"function teardown\(\) \{(.*?)\n  \}", t, re.S)
+        self.assertIsNotNone(m)
+        body = m.group(1)
+        self.assertLess(
+            body.index("stopped = true;"), body.index("clearInterval(timer)"))
 
     def test_gate_never_uses_the_binding(self):
         self.assertNotIn("__sfHapticSend", read(GATE))

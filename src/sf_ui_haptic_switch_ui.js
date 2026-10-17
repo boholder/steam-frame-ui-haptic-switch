@@ -551,17 +551,19 @@
       if (!cb) return;
 
       var now = Date.now();
+      if (ev.type === 'pointerdown') {
+        if (ev.button !== undefined && ev.button !== 0) return;
+      }
+      /* Throttled click/keydown still belong to our row: keep the stock
+       * default suppressed before either early return below. */
+      if (ev.type !== 'pointerdown' && ev.preventDefault) ev.preventDefault();
+      if (ev.stopPropagation) ev.stopPropagation();
       if (ev.type === 'click') {
         if (now - sawDown < 800) return;   /* already handled pointerdown */
-      } else if (ev.type === 'pointerdown') {
-        if (ev.button !== undefined && ev.button !== 0) return;
       }
       if (now - lastFlip < 250) return;
       if (ev.type === 'pointerdown') sawDown = now;
       lastFlip = now;
-
-      if (ev.type !== 'pointerdown' && ev.preventDefault) ev.preventDefault();
-      if (ev.stopPropagation) ev.stopPropagation();
 
       var shown = cb.getAttribute(STATE_ATTR);
       var on = shown === '1' ? true

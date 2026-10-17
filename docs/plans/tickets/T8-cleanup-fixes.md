@@ -1,6 +1,6 @@
 # T8 — 修复审计确认的运行时 / UI 问题
 
-- **状态**：ready（设计定稿，待实现）
+- **状态**：done（已在 integration branch `t8-cleanup-fixes` 实现）
 - **载体**：本地 ticket
 - **阻塞于**：T7（已完成）
 - **阻塞**：无
