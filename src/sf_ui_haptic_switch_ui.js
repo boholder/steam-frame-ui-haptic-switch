@@ -539,15 +539,18 @@
       setEnabled(!on);
     }
 
-    window.addEventListener('pointerdown', flip, true);
-    window.addEventListener('click', flip, true);
-    window.addEventListener('keydown', function (ev) {
+    function onKey(ev) {
       if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
       flip(ev);
-    }, true);
+    }
+
+    window.addEventListener('pointerdown', flip, true);
+    window.addEventListener('click', flip, true);
+    window.addEventListener('keydown', onKey, true);
     cleanups.push(function () {
       window.removeEventListener('pointerdown', flip, true);
       window.removeEventListener('click', flip, true);
+      window.removeEventListener('keydown', onKey, true);
     });
   }
 

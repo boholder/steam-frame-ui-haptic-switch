@@ -71,6 +71,10 @@ class ContractTests(unittest.TestCase):
         self.assertIn("JSON.stringify", t)
         self.assertIn("haptic", t)
 
+    def test_ui_removes_the_keydown_listener_on_teardown(self):
+        t = read(UI)
+        self.assertIn("removeEventListener('keydown'", t)
+
     def test_gate_never_uses_the_binding(self):
         self.assertNotIn("__sfHapticSend", read(GATE))
         self.assertNotIn("__sfUiHapticSwitchSend", read(GATE))
