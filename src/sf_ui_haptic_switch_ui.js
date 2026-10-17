@@ -31,7 +31,7 @@
   var BODY_KEY = 'sf_ui_haptic_switch_body_v1';
   var STATE_ATTR = 'data-sf-ui-haptic-state';
 
-  var ui = null;          /* { row, checkbox } */
+  var ui = null;          /* { checkbox } */
   var tpl = null;
   var bodyId = null;
   var observer = null;
@@ -411,8 +411,7 @@
       cb.setAttribute('aria-label', label);
       cb = applyToggleLook(cb, readEnabled()) || cb;
     }
-    row.__cb = cb;
-    return row;
+    return { row: row, checkbox: cb };
   }
 
   /* ------------------------------------------------------------------ */
@@ -434,8 +433,9 @@
     var existing = document.getElementById(ROW_ID);
     if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
 
-    var row = toggleRow(LABEL, ICON_HAPTIC);
-    if (!row) return false;
+    var built = toggleRow(LABEL, ICON_HAPTIC);
+    if (!built) return false;
+    var row = built.row;
 
     var host = body;
     if (tpl.sectionCls) {
@@ -446,7 +446,7 @@
     }
     body.appendChild(host);
 
-    ui = { row: row, checkbox: row.__cb };
+    ui = { checkbox: built.checkbox };
     render();
     log('switch mounted into ' + body.id);
     return true;
