@@ -30,12 +30,15 @@
   var CACHE_KEY = 'sf_ui_haptic_switch_tpl_v1';
   var BODY_KEY = 'sf_ui_haptic_switch_body_v1';
   var STATE_ATTR = 'data-sf-ui-haptic-state';
+  var SECTION_ATTR = 'data-sf-ui-haptic-section';
 
   var ui = null;          /* { checkbox } */
   var tpl = null;
   var bodyId = null;
   var observer = null;
   var scheduled = false;
+  var scheduleTimer = null;
+  var tornDown = false;
   var cleanups = [];
   var lastFlip = 0;
 
@@ -421,6 +424,7 @@
   /* ------------------------------------------------------------------ */
 
   function mount() {
+    if (tornDown) return false;
     var p = parts();
     if (!p) return false;
     var body = targetBody(p);
@@ -432,6 +436,11 @@
     }
     if (!tpl) return false;
 
+    var stale = [].slice.call(
+      document.querySelectorAll('[' + SECTION_ATTR + ']'));
+    stale.forEach(function (el) {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    });
     var existing = document.getElementById(ROW_ID);
     if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
 
@@ -443,6 +452,7 @@
     if (tpl.sectionCls) {
       var sec = document.createElement('div');
       sec.className = tpl.sectionCls;
+      sec.setAttribute(SECTION_ATTR, '');
       sec.appendChild(row);
       host = sec;
     }
@@ -464,7 +474,7 @@
   }
 
   function sync() {
-    if (!parts()) return;
+    if (tornDown || !parts()) return;
     /* (Re)mount when our row vanished (tab switch / React re-render). */
     if (!document.getElementById(ROW_ID)) {
       mount();
@@ -474,10 +484,12 @@
   }
 
   function schedule() {
-    if (scheduled) return;
+    if (tornDown || scheduled) return;
     scheduled = true;
-    setTimeout(function () {
+    scheduleTimer = setTimeout(function () {
+      scheduleTimer = null;
       scheduled = false;
+      if (tornDown) return;
       try { sync(); } catch (e) { log('sync error', e); }
     }, 60);
   }
@@ -565,11 +577,19 @@
     getState: function () { return { enabled: readEnabled() }; },
     sync: sync,
     teardown: function () {
+      tornDown = true;
+      if (scheduleTimer) { clearTimeout(scheduleTimer); scheduleTimer = null; }
+      scheduled = false;
       if (observer) { observer.disconnect(); observer = null; }
       cleanups.forEach(function (fn) { try { fn(); } catch (e) {} });
       cleanups = [];
       var row = document.getElementById(ROW_ID);
       if (row && row.parentNode) row.parentNode.removeChild(row);
+      var sections = [].slice.call(
+        document.querySelectorAll('[' + SECTION_ATTR + ']'));
+      sections.forEach(function (el) {
+        if (el.parentNode) el.parentNode.removeChild(el);
+      });
       var look = document.getElementById(LOOK_STYLE_ID);
       if (look && look.parentNode) look.parentNode.removeChild(look);
       ui = null; tpl = null;

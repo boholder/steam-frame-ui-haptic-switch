@@ -90,6 +90,17 @@ class ContractTests(unittest.TestCase):
         self.assertIn("function loadBodyId", t)
         self.assertEqual(t.count("sessionStorage.getItem(BODY_KEY)"), 1)
 
+    def test_ui_tears_down_its_section_wrapper(self):
+        t = read(UI)
+        self.assertIn("data-sf-ui-haptic-section", t)
+        self.assertIn("SECTION_ATTR", t)
+
+    def test_ui_blocks_queued_sync_after_teardown(self):
+        t = read(UI)
+        self.assertIn("tornDown", t)
+        self.assertIn("clearTimeout(scheduleTimer)", t)
+        self.assertIn("if (tornDown) return;", t)
+
     def test_gate_never_uses_the_binding(self):
         self.assertNotIn("__sfHapticSend", read(GATE))
         self.assertNotIn("__sfUiHapticSwitchSend", read(GATE))
