@@ -562,11 +562,14 @@ class Daemon:
     def _set_enabled(self, enabled):
         if enabled == self.enabled:
             return False
+        previous = self.enabled
         self.enabled = enabled
         try:
             save_state(self.state_file, enabled)
         except Exception as e:
-            log("state write failed: %s" % e)
+            self.enabled = previous
+            log("state write failed: %s; reverting" % e)
+            return False
         return True
 
     def _apply_enabled(self, enabled, source):
@@ -575,7 +578,7 @@ class Daemon:
                 log("switch -> %s" % storage_value(enabled))
             else:
                 _debug("state <- :8080 %s" % storage_value(enabled))
-        self.steam_synced = True
+        self.steam_synced = self.enabled == enabled
         self._push_vr()
 
     def _sync_from_steam(self):

@@ -5,6 +5,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 
@@ -201,6 +202,49 @@ class AttachFailureTests(unittest.TestCase):
             self.assertEqual(detach[1], {"sessionId": "sid-1"})
             self.assertEqual(daemon.sessions, {})
             self.assertEqual(daemon.target_sessions, {})
+
+
+class StateWriteTests(unittest.TestCase):
+    def _daemon(self, tmp, enabled=True):
+        daemon = d.Daemon(
+            8080, 8087, {"gate": "g", "ui": "u"},
+            os.path.join(tmp, "state.json"))
+        daemon.enabled = enabled
+        daemon.pushed = []
+        daemon._push_vr = lambda: daemon.pushed.append(daemon.enabled)
+        return daemon
+
+    def test_write_failure_reverts_and_marks_not_synced(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp, enabled=True)
+            with mock.patch.object(
+                    d, "save_state", side_effect=OSError("disk full")):
+                daemon._apply_enabled(False, "switch")
+
+            self.assertTrue(daemon.enabled)
+            self.assertFalse(daemon.steam_synced)
+            self.assertEqual(daemon.pushed, [True])
+
+    def test_write_success_keeps_the_new_value_and_marks_synced(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp, enabled=True)
+
+            daemon._apply_enabled(False, "switch")
+
+            self.assertFalse(daemon.enabled)
+            self.assertTrue(daemon.steam_synced)
+            self.assertEqual(daemon.pushed, [False])
+            self.assertFalse(d.load_state(daemon.state_file))
+
+    def test_unchanged_value_stays_synced(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp, enabled=False)
+            with mock.patch.object(
+                    d, "save_state", side_effect=OSError("should not write")):
+                daemon._apply_enabled(False, "sync")
+
+            self.assertFalse(daemon.enabled)
+            self.assertTrue(daemon.steam_synced)
 
 
 class StatusTests(unittest.TestCase):
