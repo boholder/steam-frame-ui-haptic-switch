@@ -29,7 +29,7 @@ command -v systemctl >/dev/null || die "找不到 systemctl"
 ok "python3 + systemctl 就绪"
 
 for f in sf_ui_haptic_switch_gate.js sf_ui_haptic_switch_ui.js \
-         sf_ui_haptic_switch_daemon.py sf_ui_haptic_switch_cdp.py \
+         sf_ui_haptic_switch_daemon.py \
          sf_ui_haptic_switch_settings.py \
          sf-ui-haptic-switch.service; do
   [ -f "$SRC/$f" ] || die "安装包不完整，缺少 $SRC/$f"

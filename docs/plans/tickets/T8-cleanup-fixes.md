@@ -219,7 +219,7 @@
 
 ### 8. Python 1 — Endpoint sender 线程
 
-**文件**：`src/sf_ui_haptic_switch_cdp.py`（`Endpoint`）
+**文件**：`src/sf_ui_haptic_switch_daemon.py`（`Endpoint`；原 `sf_ui_haptic_switch_cdp.py` 已合并进来）
 
 **现状**：每个 endpoint 有独立 reader 线程，但 `Endpoint.call` / `evaluate` 的 `sendall` 在 daemon 主线程执行；对端不读时 `sendall` 可永久阻塞主循环。
 
@@ -347,7 +347,7 @@
 
 **预同意的 seam（D4 / D5）**：
 
-- `Endpoint`：monkeypatch `cdp.WebSocket` / `cdp.http_json` 后走公开的 `connect()` / `call()` / `close()`；不直接调 `_send_loop`。
+- `Endpoint`：monkeypatch `daemon.WebSocket` / `daemon.http_json` 后走公开的 `connect()` / `call()` / `close()`；不直接调 `_send_loop`。
 - `WebSocket`：`object.__new__` + `FakeSocket`，直接调公开 `close()`。
 - `Daemon`：直接驱动 `_attach` / `_on_user_change`，注入 fake `Endpoint` / `Session`；`save_state` 通过 monkeypatch 模块级符号替换。不改 `Daemon.__init__`。
 - `teardown_expr` / `harvestToggleStates` / `hookToggle.flip` / gate `teardown`：JS 静态契约，正则限定在对应函数体内。

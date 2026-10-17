@@ -51,7 +51,7 @@ dashboard 本地服务）。
 ### 7.3 每页事实
 
 探测方式：stdlib-only Python CDP 客户端（复用当时 one-shot 注入器的
-`WebSocket` / `CDP`；现对应 `src/sf_ui_haptic_switch_cdp.py`），逐个 page 的
+`WebSocket` / `CDP`；现内置于 `src/sf_ui_haptic_switch_daemon.py`），逐个 page 的
 `webSocketDebuggerUrl` 执行 `Runtime.evaluate`
 （`returnByValue:true`）。推送与运行命令：
 

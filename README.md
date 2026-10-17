@@ -72,8 +72,7 @@ reconnect, and whenever a page gets a new execution context.
 | `install.sh` / `uninstall.sh` | run in the checkout; installs the unit, does not copy the repo |
 | `src/sf_ui_haptic_switch_gate.js` | wraps both haptic bridges; gates the two button effects |
 | `src/sf_ui_haptic_switch_ui.js` | renders the switch and notifies the daemon |
-| `src/sf_ui_haptic_switch_daemon.py` | resident daemon (Python 3, stdlib only) |
-| `src/sf_ui_haptic_switch_cdp.py` | CDP transport: WebSocket, reader thread, endpoint sessions |
+| `src/sf_ui_haptic_switch_daemon.py` | resident daemon and CDP transport (Python 3, stdlib only) |
 | `src/sf_ui_haptic_switch_settings.py` | safe `steamvr.vrsettings` editor used by install/uninstall |
 | `installation_lib.sh` | shared install/uninstall constants and output helpers |
 | `src/sf-ui-haptic-switch.service` | systemd daemon unit |

@@ -40,7 +40,7 @@ class ScriptContractTests(unittest.TestCase):
     def test_install_installs_the_daemon_and_enables_the_vr_debugger(self):
         t = read(os.path.join(ROOT, "install.sh"))
         self.assertIn("sf_ui_haptic_switch_daemon.py", t)
-        self.assertIn("sf_ui_haptic_switch_cdp.py", t)
+        self.assertNotIn("sf_ui_haptic_switch_cdp.py", t)
         self.assertIn("installation_lib.sh", t)
         self.assertIn("systemctl enable", t)
         self.assertIn("$TIMER", t)   # removed on upgrade
@@ -106,8 +106,12 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIn("TIMER=\"sf-ui-haptic-switch.timer\"", lib)
         self.assertIn("STATE_DIR", lib)
 
-    def test_cdp_transport_module_exists(self):
-        self.assertTrue(os.path.exists(
+    def test_cdp_transport_lives_in_the_daemon(self):
+        t = read(os.path.join(SRC, "sf_ui_haptic_switch_daemon.py"))
+        for symbol in ("class WSError", "class WebSocket",
+                       "def http_json", "class Endpoint"):
+            self.assertIn(symbol, t)
+        self.assertFalse(os.path.exists(
             os.path.join(SRC, "sf_ui_haptic_switch_cdp.py")))
 
 

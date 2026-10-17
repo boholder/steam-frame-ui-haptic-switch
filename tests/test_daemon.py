@@ -11,7 +11,6 @@ from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 
-import sf_ui_haptic_switch_cdp as cdp  # noqa: E402
 import sf_ui_haptic_switch_daemon as d  # noqa: E402
 
 
@@ -99,7 +98,7 @@ class FakeSocket:
 
 class WebSocketCloseTests(unittest.TestCase):
     def test_close_sends_the_close_frame_before_marking_closed(self):
-        ws = object.__new__(cdp.WebSocket)
+        ws = object.__new__(d.WebSocket)
         ws._closed = False
         ws._send_lock = threading.Lock()
         ws.sock = FakeSocket()
@@ -113,7 +112,7 @@ class WebSocketCloseTests(unittest.TestCase):
         self.assertTrue(ws.sock.closed)
 
     def test_close_skips_the_frame_when_the_send_lock_is_busy(self):
-        ws = object.__new__(cdp.WebSocket)
+        ws = object.__new__(d.WebSocket)
         ws._closed = False
         ws._send_lock = threading.Lock()
         ws.sock = FakeSocket()
@@ -146,7 +145,7 @@ class FakeWS:
         if self.block:
             self.block_event.wait(5)
         if self.closed:
-            raise cdp.WSError("closed")
+            raise d.WSError("closed")
         msg = json.loads(text)
         if self.auto_respond and "id" in msg:
             self.inbox.put(json.dumps(
@@ -155,7 +154,7 @@ class FakeWS:
     def recv_text(self):
         item = self.inbox.get()
         if item is None:
-            raise cdp.WSError("closed")
+            raise d.WSError("closed")
         return item
 
     def close(self):
@@ -167,16 +166,16 @@ class FakeWS:
 class EndpointSenderTests(unittest.TestCase):
     def test_a_stuck_send_times_out_and_closes_the_endpoint(self):
         ws = FakeWS()
-        with mock.patch.object(cdp, "http_json", return_value={
+        with mock.patch.object(d, "http_json", return_value={
                 "webSocketDebuggerUrl":
                     "ws://127.0.0.1:1/devtools/browser/x"}), \
-             mock.patch.object(cdp, "WebSocket", return_value=ws):
-            endpoint = cdp.Endpoint(9999, queue.Queue(), d.KIND_STEAM)
+             mock.patch.object(d, "WebSocket", return_value=ws):
+            endpoint = d.Endpoint(9999, queue.Queue(), d.KIND_STEAM)
             endpoint.connect()
             sender = endpoint.sender
             ws.block = True
 
-            with self.assertRaises(cdp.WSError):
+            with self.assertRaises(d.WSError):
                 endpoint.call("Runtime.evaluate", timeout=0.1)
 
             self.assertFalse(endpoint.alive)
@@ -186,16 +185,16 @@ class EndpointSenderTests(unittest.TestCase):
     def test_reconnect_after_a_timeout_uses_a_fresh_sender_queue(self):
         first = FakeWS()
         second = FakeWS()
-        with mock.patch.object(cdp, "http_json", return_value={
+        with mock.patch.object(d, "http_json", return_value={
                 "webSocketDebuggerUrl":
                     "ws://127.0.0.1:1/devtools/browser/x"}), \
-             mock.patch.object(cdp, "WebSocket",
+             mock.patch.object(d, "WebSocket",
                                side_effect=[first, second]):
-            endpoint = cdp.Endpoint(9999, queue.Queue(), d.KIND_STEAM)
+            endpoint = d.Endpoint(9999, queue.Queue(), d.KIND_STEAM)
             endpoint.connect()
             first.block = True
 
-            with self.assertRaises(cdp.WSError):
+            with self.assertRaises(d.WSError):
                 endpoint.call("Runtime.evaluate", timeout=0.1)
             self.assertFalse(endpoint.alive)
 
@@ -209,11 +208,11 @@ class EndpointSenderTests(unittest.TestCase):
 class CommandLogTests(unittest.TestCase):
     def test_short_command(self):
         self.assertEqual(
-            cdp.describe_command("Runtime.enable", {}),
+            d.describe_command("Runtime.enable", {}),
             "command Runtime.enable {}")
 
     def test_long_command_is_truncated(self):
-        text = cdp.describe_command(
+        text = d.describe_command(
             "Runtime.evaluate", {"expression": "x" * 500})
         self.assertIn("Runtime.evaluate", text)
         self.assertLessEqual(len(text), 230)
@@ -271,7 +270,7 @@ class AttachFailureTests(unittest.TestCase):
         def call(self, method, params=None, session=None, timeout=10.0):
             self.calls.append((method, dict(params or {}), session))
             if method == self.fail_on:
-                raise cdp.WSError("boom")
+                raise d.WSError("boom")
             if method == "Target.attachToTarget":
                 return {"sessionId": "sid-1"}
             return {}
