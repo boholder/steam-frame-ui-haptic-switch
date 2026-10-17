@@ -190,6 +190,9 @@ class Endpoint:
             raise WSError("no browser webSocketDebuggerUrl on :%d" % self.port)
         if self.reader is not None:
             self.close()
+        # close() leaves a sentinel in the old queue; a fresh sender must not
+        # consume it (or any stale message) or the new connection dies at once.
+        self._send_queue = queue.Queue()
         ws = WebSocket(ws_url)
         self.ws = ws
         self.alive = True

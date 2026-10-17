@@ -183,6 +183,28 @@ class EndpointSenderTests(unittest.TestCase):
             self.assertIsNone(endpoint.ws)
             self.assertFalse(sender.is_alive())
 
+    def test_reconnect_after_a_timeout_uses_a_fresh_sender_queue(self):
+        first = FakeWS()
+        second = FakeWS()
+        with mock.patch.object(cdp, "http_json", return_value={
+                "webSocketDebuggerUrl":
+                    "ws://127.0.0.1:1/devtools/browser/x"}), \
+             mock.patch.object(cdp, "WebSocket",
+                               side_effect=[first, second]):
+            endpoint = cdp.Endpoint(9999, queue.Queue(), d.KIND_STEAM)
+            endpoint.connect()
+            first.block = True
+
+            with self.assertRaises(cdp.WSError):
+                endpoint.call("Runtime.evaluate", timeout=0.1)
+            self.assertFalse(endpoint.alive)
+
+            endpoint.connect()
+            self.assertEqual(
+                endpoint.call("Runtime.evaluate", timeout=1.0), {})
+            self.assertIsNotNone(endpoint.sender)
+            self.assertTrue(endpoint.sender.is_alive())
+
 
 class CommandLogTests(unittest.TestCase):
     def test_short_command(self):
