@@ -27,6 +27,9 @@ systemctl disable "$SERVICE" 2>/dev/null || true
 systemctl stop "$SERVICE" 2>/dev/null || true
 # SIGTERM 让 daemon 对两个端点尽力 teardown。
 sleep 1
+if systemctl is-active --quiet "$SERVICE"; then
+  die "$SERVICE 仍在运行；中止卸载，避免 daemon 继续注入"
+fi
 ok "已停止 $SERVICE（并清理旧 $TIMER）"
 
 # --------------------------------------------------------------------------
@@ -35,6 +38,10 @@ step "2/4  关闭 SteamVR Dashboard 调试端口"
 # 只删除 VRWebHelper.DebuggerEnabled；若 VRWebHelper 变空，连空节一起删。
 # 不恢复 .bak。
 SETTINGS="$SRC/sf_ui_haptic_switch_settings.py"
+
+if pgrep -f '[v]rserver' >/dev/null 2>&1; then
+  warn "SteamVR 正在运行；删除 DebuggerEnabled 后，SteamVR 退出时可能回写配置"
+fi
 
 if [ ! -f "$SETTINGS" ]; then
   warn "找不到 settings helper，跳过配置清理"

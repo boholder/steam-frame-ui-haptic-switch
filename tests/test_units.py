@@ -64,6 +64,18 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIn("INSTALLATION_PATH", t)
         self.assertIn("ESCAPED_DEST", t)
 
+    def test_uninstall_aborts_while_the_service_is_active(self):
+        t = read(os.path.join(ROOT, "uninstall.sh"))
+        self.assertIn('systemctl is-active --quiet "$SERVICE"', t)
+        self.assertIn('die "$SERVICE 仍在运行', t)
+        self.assertLess(
+            t.index('systemctl is-active --quiet "$SERVICE"'),
+            t.index('rm -f "$UNIT_DIR/$TIMER"'))
+        self.assertIn("pgrep -f '[v]rserver'", t)
+        self.assertLess(
+            t.index("pgrep -f '[v]rserver'"),
+            t.index('--disable'))
+
     def test_uninstall_does_not_delete_the_checkout(self):
         t = read(os.path.join(ROOT, "uninstall.sh"))
         self.assertNotIn('rm -rf "$DEST"', t)
