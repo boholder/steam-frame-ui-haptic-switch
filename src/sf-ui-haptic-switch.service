@@ -1,10 +1,15 @@
 [Unit]
-Description=Steam Frame "Controller UI Haptic" switch (one-shot injector)
+Description=Steam Frame "Controller UI Haptic" switch (daemon)
 Documentation=file:///home/steamos/sf-ui-haptic-switch/README.md
 After=multi-user.target graphical.target
 
 [Service]
-Type=oneshot
+Type=simple
 User=steamos
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 /home/steamos/sf-ui-haptic-switch/sf_ui_haptic_switch_inject.py
+ExecStart=/usr/bin/python3 /home/steamos/sf-ui-haptic-switch/sf_ui_haptic_switch_daemon.py
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

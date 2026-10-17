@@ -12,36 +12,52 @@ def read(path):
 
 
 class UnitFileTests(unittest.TestCase):
-    def test_service_is_oneshot_run_as_steamos(self):
+    def test_service_is_a_restarting_daemon(self):
         t = read(os.path.join(SRC, "sf-ui-haptic-switch.service"))
-        self.assertIn("Type=oneshot", t)
+        self.assertIn("Type=simple", t)
         self.assertIn("User=steamos", t)
-        self.assertIn("sf_ui_haptic_switch_inject.py", t)
-        self.assertNotIn("Restart=", t)  # oneshot units must not set Restart
+        self.assertIn("sf_ui_haptic_switch_daemon.py", t)
+        self.assertIn("Restart=always", t)
+        self.assertIn("RestartSec=1", t)
+        self.assertNotIn("Type=oneshot", t)
+        self.assertIn("WantedBy=multi-user.target", t)
 
-    def test_timer_rearms_and_binds_the_service(self):
-        t = read(os.path.join(SRC, "sf-ui-haptic-switch.timer"))
-        self.assertIn("OnBootSec=", t)
-        self.assertIn("OnUnitInactiveSec=3s", t)
-        self.assertIn("Unit=sf-ui-haptic-switch.service", t)
-        self.assertIn("WantedBy=timers.target", t)
+    def test_timer_is_gone(self):
+        self.assertFalse(os.path.exists(
+            os.path.join(SRC, "sf-ui-haptic-switch.timer")))
+
+    def test_old_injector_is_gone(self):
+        self.assertFalse(os.path.exists(
+            os.path.join(SRC, "sf_ui_haptic_switch_inject.py")))
+        self.assertFalse(os.path.exists(
+            os.path.join(HERE, "test_inject.py")))
 
     def test_old_daemon_unit_is_gone(self):
         self.assertFalse(os.path.exists(os.path.join(SRC, "sf-haptic-switchd.service")))
 
 
 class ScriptContractTests(unittest.TestCase):
-    def test_install_enables_the_timer(self):
+    def test_install_installs_the_daemon_and_enables_the_vr_debugger(self):
         t = read(os.path.join(ROOT, "install.sh"))
-        self.assertIn("sf-ui-haptic-switch.timer", t)
-        self.assertIn("enable --now", t)
-        self.assertIn("sf_ui_haptic_switch_inject.py", t)
+        self.assertIn("sf_ui_haptic_switch_daemon.py", t)
+        self.assertIn("systemctl enable", t)
+        self.assertIn("sf-ui-haptic-switch.timer", t)   # removed on upgrade
+        self.assertIn("sf_ui_haptic_switch_settings.py", t)
+        self.assertIn("--enable", t)
+        self.assertIn("steamvr.vrsettings", t)
+        self.assertNotIn("--teardown", t)
+        helper = read(os.path.join(SRC, "sf_ui_haptic_switch_settings.py"))
+        self.assertIn("VRWebHelper", helper)
+        self.assertIn("DebuggerEnabled", helper)
 
-    def test_uninstall_disables_and_tears_down(self):
+    def test_uninstall_removes_the_daemon_and_the_debugger_key(self):
         t = read(os.path.join(ROOT, "uninstall.sh"))
         self.assertIn("sf-ui-haptic-switch.timer", t)
-        self.assertIn("disable --now", t)
-        self.assertIn("--teardown", t)
+        self.assertIn("systemctl", t)
+        self.assertIn("sf_ui_haptic_switch_settings.py", t)
+        self.assertIn("--disable", t)
+        self.assertIn("steamvr.vrsettings", t)
+        self.assertNotIn("--teardown", t)
 
 
 if __name__ == "__main__":

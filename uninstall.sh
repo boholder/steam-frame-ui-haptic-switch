@@ -3,13 +3,18 @@
 #
 #   sudo ./uninstall.sh
 #
-# 会停掉定时器与注入器、尽力摘掉界面上的开关与震动包装，再删掉所有装上去的文件。
+# 停 daemon（SIGTERM 会尽力摘掉注入的 UI/包装）、删除 :8087 调试端口开关、
+# 清理 old timer、单元、安装目录与状态文件。
 set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 DEST="/home/steamos/sf-ui-haptic-switch"
 SERVICE="sf-ui-haptic-switch.service"
 TIMER="sf-ui-haptic-switch.timer"
 UNIT_DIR="/etc/systemd/system"
+CFG="/home/steamos/.config/openvr/config/steamvr.vrsettings"
+STATE_DIR="/home/steamos/.local/state/sf-ui-haptic-switch"
 
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$*"; }
@@ -20,46 +25,46 @@ die()  { bad "$*"; exit 1; }
 [ "$(id -u)" -eq 0 ] || die "需要 root：sudo $0"
 
 # --------------------------------------------------------------------------
-step "1/4  停止并取消定时器"
+step "1/4  停止 daemon 与旧 timer"
 # --------------------------------------------------------------------------
-if systemctl list-unit-files "$TIMER" >/dev/null 2>&1 || [ -f "$UNIT_DIR/$TIMER" ]; then
-  systemctl disable --now "$TIMER" 2>/dev/null || true
-  ok "已停用 $TIMER"
-else
-  warn "没有找到 $TIMER（可能本来就没装）"
-fi
-systemctl disable "$SERVICE" 2>/dev/null || true   # no [Install]: no-op, kept for symmetry
+systemctl disable --now "$TIMER" 2>/dev/null || true
+systemctl disable "$SERVICE" 2>/dev/null || true
 systemctl stop "$SERVICE" 2>/dev/null || true
-ok "已停止 $SERVICE"
+# SIGTERM 让 daemon 对两个端点尽力 teardown。
+sleep 1
+ok "已停止 $SERVICE（并清理旧 $TIMER）"
 
 # --------------------------------------------------------------------------
-step "2/4  尽力摘掉界面上的开关与包装"
+step "2/4  关闭 SteamVR Dashboard 调试端口"
 # --------------------------------------------------------------------------
-INJ="$DEST/sf_ui_haptic_switch_inject.py"
-if [ -f "$INJ" ]; then
-  if python3 "$INJ" --teardown; then
-    ok "已向 :8080 页面发出 teardown（若端点没开则无操作）"
-  else
-    warn "teardown 未完成（Steam 可能没在运行）；页面下次 reload 会自然干净"
-  fi
+# 只删除 VRWebHelper.DebuggerEnabled；若 VRWebHelper 变空，连空节一起删。
+# 不恢复 .bak。
+SETTINGS="$DEST/sf_ui_haptic_switch_settings.py"
+[ -f "$SETTINGS" ] || SETTINGS="$HERE/src/sf_ui_haptic_switch_settings.py"
+
+if [ ! -f "$SETTINGS" ]; then
+  warn "找不到 settings helper，跳过配置清理"
+elif [ ! -f "$CFG" ]; then
+  warn "$CFG 不存在，跳过"
+elif python3 "$SETTINGS" --disable "$CFG"; then
+  ok "已从 $CFG 删除 VRWebHelper.DebuggerEnabled（.bak 保留）"
 else
-  warn "$INJ 不存在，跳过 teardown"
+  warn "无法修改 $CFG；请手动删除 VRWebHelper.DebuggerEnabled"
 fi
 
 # --------------------------------------------------------------------------
-step "3/4  删除文件"
+step "3/4  删除单元、文件与状态"
 # --------------------------------------------------------------------------
 rm -f "$UNIT_DIR/$TIMER" "$UNIT_DIR/$SERVICE"
-ok "删除 $UNIT_DIR/$TIMER 与 $UNIT_DIR/$SERVICE"
 systemctl daemon-reload
 systemctl reset-failed "$SERVICE" 2>/dev/null || true
-ok "systemd 已重新加载"
+ok "删除 $UNIT_DIR/$TIMER 与 $UNIT_DIR/$SERVICE"
 
 if [ -d "$DEST" ]; then
   case "$DEST" in
     /|/home|/home/*/|"") die "拒绝删除 $DEST（路径不合理）" ;;
   esac
-  if [ -f "$DEST/sf_ui_haptic_switch_inject.py" ] || [ -f "$DEST/sf_ui_haptic_switch_gate.js" ]; then
+  if [ -f "$DEST/sf_ui_haptic_switch_daemon.py" ] || [ -f "$DEST/sf_ui_haptic_switch_gate.js" ]; then
     rm -rf "$DEST"
     ok "删除 $DEST"
   else
@@ -67,6 +72,11 @@ if [ -d "$DEST" ]; then
   fi
 else
   warn "$DEST 不存在"
+fi
+
+if [ -d "$STATE_DIR" ]; then
+  rm -rf "$STATE_DIR"
+  ok "删除状态目录 $STATE_DIR"
 fi
 
 # --------------------------------------------------------------------------
@@ -78,12 +88,17 @@ if command -v curl >/dev/null && curl -s --max-time 2 \
 else
   ok "Steam 未运行，下次启动时页面是干净的"
 fi
+if command -v curl >/dev/null && curl -s --max-time 2 \
+     http://127.0.0.1:8087/json/list >/dev/null 2>&1; then
+  warn "SteamVR 仍在运行：Dashboard 页面上的包装会在下一次 reload 后消失"
+fi
 
 cat <<'EOF'
 
 ────────────────────────────────────────────────────────────
  卸载完成
 
- 手柄震动恢复出厂状态，和没装过一样。
+ 手柄震动恢复出厂状态；:8087 的调试端口开关已删除。
+ 配置文件备份（.bak）保留，如需恢复可手动改回。
 ────────────────────────────────────────────────────────────
 EOF
