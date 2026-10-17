@@ -144,6 +144,14 @@ def http_json(url, timeout=5.0):
         return json.load(r)
 
 
+def describe_command(method, params=None):
+    """One-line, bounded representation for --verbose command logging."""
+    text = json.dumps(params or {}, ensure_ascii=False, sort_keys=True)
+    if len(text) > 200:
+        text = text[:197] + "..."
+    return "command %s %s" % (method, text)
+
+
 class Endpoint:
     """One browser-level CDP connection plus its reader thread."""
 
@@ -230,6 +238,7 @@ class Endpoint:
         msg = {"id": mid, "method": method, "params": params or {}}
         if session:
             msg["sessionId"] = session
+        self._debug(describe_command(method, params))
         try:
             self.ws.send_text(json.dumps(msg))
         except Exception as e:

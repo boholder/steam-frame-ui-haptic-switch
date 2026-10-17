@@ -7,6 +7,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 
+import sf_ui_haptic_switch_cdp as cdp  # noqa: E402
 import sf_ui_haptic_switch_daemon as d  # noqa: E402
 
 
@@ -74,6 +75,20 @@ class TargetTests(unittest.TestCase):
         self.assertEqual(
             d.scripts_for("valve.steam.gamepadui.barpopup", "", d.KIND_STEAM),
             ["gate", "ui"])
+
+
+class CommandLogTests(unittest.TestCase):
+    def test_short_command(self):
+        self.assertEqual(
+            cdp.describe_command("Runtime.enable", {}),
+            "command Runtime.enable {}")
+
+    def test_long_command_is_truncated(self):
+        text = cdp.describe_command(
+            "Runtime.evaluate", {"expression": "x" * 500})
+        self.assertIn("Runtime.evaluate", text)
+        self.assertLessEqual(len(text), 230)
+        self.assertTrue(text.endswith("..."))
 
 
 class HandshakeTests(unittest.TestCase):

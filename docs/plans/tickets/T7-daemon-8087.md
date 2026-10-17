@@ -9,7 +9,7 @@
 ## 实现状态
 
 - 分支：`t7-daemon-8087`
-- 单测：`python -m unittest discover -s tests` → 49 passed，1 skipped
+- 单测：`python -m unittest discover -s tests` → 51 passed，1 skipped
   （Windows 上跳过 POSIX mode 断言）
 - 文件：`src/sf_ui_haptic_switch_daemon.py`、`sf_ui_haptic_switch_cdp.py`、
   `sf_ui_haptic_switch_settings.py`、`sf_ui_haptic_switch_lib.sh`、
