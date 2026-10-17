@@ -363,39 +363,37 @@
     knob.style.transform = on ? KNOB_ON : KNOB_OFF;
   }
 
+  function finishToggle(cb, on) {
+    cb.setAttribute(STATE_ATTR, on ? '1' : '0');
+    cb.setAttribute('aria-checked', on ? 'true' : 'false');
+    pinToggleLook(cb, on);
+    return cb;
+  }
+
   function applyToggleLook(cb, on) {
     if (!cb || !tpl) return cb;
     var want = on ? '1' : '0';
     if (cb.getAttribute(STATE_ATTR) === want) {
-      pinToggleLook(cb, on);
-      return cb;
+      return finishToggle(cb, on);
     }
     if (tpl.toggleOnExtra) {
       var cls = classList(cb).filter(function (c) { return c !== tpl.toggleOnExtra; });
       if (on) cls.push(tpl.toggleOnExtra);
       cb.className = cls.join(' ');
-      cb.setAttribute(STATE_ATTR, want);
-      cb.setAttribute('aria-checked', on ? 'true' : 'false');
-      pinToggleLook(cb, on);
-      return cb;
+      return finishToggle(cb, on);
     }
     var html = on ? tpl.toggleOnHTML : tpl.toggleOffHTML;
     if (!html) {
-      cb.setAttribute('aria-checked', on ? 'true' : 'false');
-      pinToggleLook(cb, on);
-      return cb;
+      return finishToggle(cb, on);
     }
     var fresh = nodeFromHTML(html);
     if (!fresh) return cb;
-    fresh.setAttribute(STATE_ATTR, want);
-    fresh.setAttribute('aria-checked', on ? 'true' : 'false');
     fresh.removeAttribute('aria-labelledby');
     var label = cb.getAttribute('aria-label');
     if (label) fresh.setAttribute('aria-label', label);
     if (cb.parentNode) cb.parentNode.replaceChild(fresh, cb);
-    pinToggleLook(fresh, on);
     if (ui) ui.checkbox = fresh;
-    return fresh;
+    return finishToggle(fresh, on);
   }
 
   function toggleRow(label, icon) {
