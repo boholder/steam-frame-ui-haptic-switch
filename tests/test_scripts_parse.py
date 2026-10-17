@@ -37,6 +37,18 @@ class ContractTests(unittest.TestCase):
         self.assertIn("sf_ui_haptic_switch", t)  # localStorage key
         self.assertNotIn("setItem", t)           # gate only reads the flag
 
+    def test_gate_wraps_the_vrhtml_bridge(self):
+        t = read(GATE)
+        self.assertIn("VRHTML", t)
+        self.assertIn("VROverlay", t)
+        self.assertIn("arguments", t)
+
+    def test_gate_documents_the_effect_enum(self):
+        t = read(GATE)
+        for name in ("ButtonEnter", "ButtonLeave", "Snap", "Sliding", "SlidingEdge"):
+            self.assertIn(name, t)
+        self.assertIn("only", t.lower())
+
     def test_ui_owns_the_localstorage_key(self):
         t = read(UI)
         self.assertIn("sf_ui_haptic_switch", t)

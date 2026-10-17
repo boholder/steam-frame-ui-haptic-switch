@@ -1,14 +1,32 @@
-/* sf_ui_haptic_switch_gate.js — injected into every Steam client UI page (:8080).
+/* sf_ui_haptic_switch_gate.js — injected into every page on both endpoints.
  *
- * Wraps `SteamClient.OpenVR.TriggerOverlayHapticEffect(effect, controller)` and,
- * while the `sf_ui_haptic_switch` localStorage flag is off, swallows the button
- * hover effects ButtonEnter(1) / ButtonLeave(2). The flag is read on every call,
- * so toggling it takes effect immediately with no re-injection.
+ *  :8080 Steam client UI:
+ *    SteamClient.OpenVR.TriggerOverlayHapticEffect(effect, controllerOrHand)
+ *    -> the effect id is arguments[0]
  *
- * Idempotent: a re-injection tears the previous instance down first. Self-heals:
- * the bridge may be absent at inject time or be replaced later, so a slow timer
- * re-checks it. The injector owns `window.__SF_UI_HAPTIC_SWITCH__.build`; this
- * script only ever sets `.gate`.
+ *  :8087 SteamVR Dashboard:
+ *    VRHTML.VROverlay.TriggerOverlayHapticEffect(overlayHandle, effect)
+ *    -> the effect id is arguments[1]
+ *
+ * EOverlayHapticEffect (read from the live Dashboard bundle):
+ *   0 None         no effect
+ *   1 ButtonEnter  cursor enters a button / clickable row
+ *   2 ButtonLeave  cursor leaves a button / clickable row
+ *   3 Snap         slider / list snaps to a detent
+ *   4 Sliding      continuous slider drag
+ *   5 SlidingEdge  slider reaches its end stop
+ *
+ * This gate only drops 1/2 (button hover). 3/4/5 (slider and snap feedback)
+ * are deliberately left alone: the product promise is to remove the
+ * cursor-lands-on-a-button tick, not every UI haptic.
+ *
+ * The flag is read on every call, so toggling it takes effect immediately with
+ * no re-injection. Idempotent: a re-injection tears the previous instance down
+ * first. Self-heals: either bridge may be absent at inject time or be replaced
+ * later, so a slow timer re-checks it.
+ *
+ * The daemon owns window.__SF_UI_HAPTIC_SWITCH__.build; this script only ever
+ * sets .gate.
  *
  * Plain ES5, no build step.
  */
@@ -19,14 +37,13 @@
   var prev = NS.gate;
   if (prev && prev.teardown) { try { prev.teardown(); } catch (e) {} }
 
-  /* Steam's bridge signature takes the effect id FIRST (unlike VRHTML's,
-   * which takes the overlay handle first). */
   var EFFECT_BUTTON_ENTER = 1;
   var EFFECT_BUTTON_LEAVE = 2;
   var KEY = 'sf_ui_haptic_switch';
   var RETRY_MS = 1000;
 
   var timer = null;
+  var wrappers = [];   /* { owner, prop, patched, original } */
 
   function log() {
     try {
@@ -44,39 +61,88 @@
     } catch (e) { return true; }
   }
 
-  function bridge() {
-    try {
-      var sc = window.SteamClient;
-      var ov = sc && sc.OpenVR;
-      return (ov && typeof ov.TriggerOverlayHapticEffect === 'function') ? ov : null;
-    } catch (e) { return null; }
+  function shouldDrop(effect) {
+    return !enabled() &&
+      typeof effect === 'number' &&
+      (effect === EFFECT_BUTTON_ENTER || effect === EFFECT_BUTTON_LEAVE);
+  }
+
+  function wrap(owner, prop, makePatched) {
+    if (!owner || typeof owner[prop] !== 'function') return false;
+
+    var current = owner[prop];
+
+    /* Already wrapped by us: take ownership so a later teardown restores it. */
+    if (current.__sfUiHapticWrapped && current.__sfUiHapticOriginal) {
+      wrappers.push({
+        owner: owner,
+        prop: prop,
+        patched: current,
+        original: current.__sfUiHapticOriginal
+      });
+      return true;
+    }
+
+    var patched = makePatched(current);
+    patched.__sfUiHapticWrapped = true;
+    patched.__sfUiHapticOriginal = current;
+
+    try { owner[prop] = patched; } catch (e) { return false; }
+    if (owner[prop] !== patched) return false;
+
+    wrappers.push({
+      owner: owner,
+      prop: prop,
+      patched: patched,
+      original: current
+    });
+    return true;
   }
 
   function install() {
-    var ov = bridge();
-    if (!ov) return false;
-    if (ov.TriggerOverlayHapticEffect.__sfUiHapticWrapped) return true;
-    var original = ov.TriggerOverlayHapticEffect;
-    var patched = function (effect) {
-      if (!enabled() &&
-          (effect === EFFECT_BUTTON_ENTER || effect === EFFECT_BUTTON_LEAVE)) {
-        return undefined;
+    var installed = 0;
+
+    /* Steam client UI (:8080): effect is the first argument. */
+    try {
+      var sc = window.SteamClient;
+      var sov = sc && sc.OpenVR;
+      if (sov && typeof sov.TriggerOverlayHapticEffect === 'function') {
+        if (wrap(sov, 'TriggerOverlayHapticEffect', function (original) {
+          return function (effect) {
+            if (shouldDrop(effect)) return undefined;
+            return original.apply(this, arguments);
+          };
+        })) installed += 1;
       }
-      return original.apply(this, arguments);
-    };
-    patched.__sfUiHapticWrapped = true;
-    patched.__sfUiHapticOriginal = original;
-    ov.TriggerOverlayHapticEffect = patched;
-    return ov.TriggerOverlayHapticEffect === patched;
+    } catch (e) {}
+
+    /* SteamVR Dashboard (:8087): effect is the second argument. */
+    try {
+      var vh = window.VRHTML;
+      var vov = vh && vh.VROverlay;
+      if (vov && typeof vov.TriggerOverlayHapticEffect === 'function') {
+        if (wrap(vov, 'TriggerOverlayHapticEffect', function (original) {
+          return function (handle, effect) {
+            if (shouldDrop(effect)) return undefined;
+            return original.apply(this, arguments);
+          };
+        })) installed += 1;
+      }
+    } catch (e) {}
+
+    return installed > 0;
   }
 
   function restore() {
-    var ov = bridge();
-    if (!ov) return;
-    var fn = ov.TriggerOverlayHapticEffect;
-    if (fn && fn.__sfUiHapticWrapped && fn.__sfUiHapticOriginal) {
-      ov.TriggerOverlayHapticEffect = fn.__sfUiHapticOriginal;
+    for (var i = wrappers.length - 1; i >= 0; i--) {
+      var w = wrappers[i];
+      try {
+        if (w.owner[w.prop] === w.patched) {
+          w.owner[w.prop] = w.original;
+        }
+      } catch (e) {}
     }
+    wrappers = [];
   }
 
   function teardown() {
@@ -86,7 +152,7 @@
   }
 
   var API = {
-    v: 1,
+    v: 2,
     enabled: enabled,
     install: install,
     teardown: teardown
