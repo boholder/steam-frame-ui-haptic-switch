@@ -1,9 +1,11 @@
 import json
 import os
+import queue
 import stat
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from unittest import mock
 
@@ -109,6 +111,77 @@ class WebSocketCloseTests(unittest.TestCase):
         self.assertTrue(ws._closed)
         self.assertTrue(ws.sock.shutdown_called)
         self.assertTrue(ws.sock.closed)
+
+    def test_close_skips_the_frame_when_the_send_lock_is_busy(self):
+        ws = object.__new__(cdp.WebSocket)
+        ws._closed = False
+        ws._send_lock = threading.Lock()
+        ws.sock = FakeSocket()
+        ws._send_lock.acquire()
+        try:
+            started = time.monotonic()
+            ws.close()
+            elapsed = time.monotonic() - started
+        finally:
+            ws._send_lock.release()
+
+        self.assertLess(elapsed, 1.0)
+        self.assertEqual(ws.sock.sent, [])
+        self.assertTrue(ws._closed)
+        self.assertTrue(ws.sock.shutdown_called)
+        self.assertTrue(ws.sock.closed)
+
+
+class FakeWS:
+    def __init__(self):
+        self.inbox = queue.Queue()
+        self.sent = []
+        self.block = False
+        self.block_event = threading.Event()
+        self.closed = False
+        self.auto_respond = True
+
+    def send_text(self, text):
+        self.sent.append(text)
+        if self.block:
+            self.block_event.wait(5)
+        if self.closed:
+            raise cdp.WSError("closed")
+        msg = json.loads(text)
+        if self.auto_respond and "id" in msg:
+            self.inbox.put(json.dumps(
+                {"id": msg["id"], "result": {}}))
+
+    def recv_text(self):
+        item = self.inbox.get()
+        if item is None:
+            raise cdp.WSError("closed")
+        return item
+
+    def close(self):
+        self.closed = True
+        self.block_event.set()
+        self.inbox.put(None)
+
+
+class EndpointSenderTests(unittest.TestCase):
+    def test_a_stuck_send_times_out_and_closes_the_endpoint(self):
+        ws = FakeWS()
+        with mock.patch.object(cdp, "http_json", return_value={
+                "webSocketDebuggerUrl":
+                    "ws://127.0.0.1:1/devtools/browser/x"}), \
+             mock.patch.object(cdp, "WebSocket", return_value=ws):
+            endpoint = cdp.Endpoint(9999, queue.Queue(), d.KIND_STEAM)
+            endpoint.connect()
+            sender = endpoint.sender
+            ws.block = True
+
+            with self.assertRaises(cdp.WSError):
+                endpoint.call("Runtime.evaluate", timeout=0.1)
+
+            self.assertFalse(endpoint.alive)
+            self.assertIsNone(endpoint.ws)
+            self.assertFalse(sender.is_alive())
 
 
 class CommandLogTests(unittest.TestCase):

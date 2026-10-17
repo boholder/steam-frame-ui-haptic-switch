@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import queue
 import re
 import socket
 import struct
@@ -69,25 +70,28 @@ class WebSocket:
         out, self._buf = self._buf[:n], self._buf[n:]
         return out
 
+    def _send_frame_unlocked(self, payload, opcode=0x1):
+        if self._closed:
+            raise WSError("socket closed")
+        header = bytearray()
+        header.append(0x80 | opcode)
+        n = len(payload)
+        if n < 126:
+            header.append(0x80 | n)
+        elif n < (1 << 16):
+            header.append(0x80 | 126)
+            header += struct.pack("!H", n)
+        else:
+            header.append(0x80 | 127)
+            header += struct.pack("!Q", n)
+        mask = os.urandom(4)
+        header += mask
+        masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+        self.sock.sendall(bytes(header) + masked)
+
     def _send_frame(self, payload, opcode=0x1):
         with self._send_lock:
-            if self._closed:
-                raise WSError("socket closed")
-            header = bytearray()
-            header.append(0x80 | opcode)
-            n = len(payload)
-            if n < 126:
-                header.append(0x80 | n)
-            elif n < (1 << 16):
-                header.append(0x80 | 126)
-                header += struct.pack("!H", n)
-            else:
-                header.append(0x80 | 127)
-                header += struct.pack("!Q", n)
-            mask = os.urandom(4)
-            header += mask
-            masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
-            self.sock.sendall(bytes(header) + masked)
+            self._send_frame_unlocked(payload, opcode)
 
     def send_text(self, text):
         self._send_frame(text.encode("utf-8"), 0x1)
@@ -124,14 +128,18 @@ class WebSocket:
                 continue
 
     def close(self):
-        # Send the close frame while the socket is still open, then mark it
-        # closed even if the peer is already gone.
-        try:
-            self._send_frame(b"", 0x8)
-        except Exception:
-            pass
-        finally:
-            self._closed = True
+        # The sender may be blocked in sendall() while holding _send_lock.
+        # Never wait for it here: send the close frame only if the lock is
+        # free, otherwise skip straight to shutdown, which wakes sendall.
+        locked = self._send_lock.acquire(blocking=False)
+        if locked:
+            try:
+                self._send_frame_unlocked(b"", 0x8)
+            except Exception:
+                pass
+            finally:
+                self._send_lock.release()
+        self._closed = True
         try:
             self.sock.shutdown(socket.SHUT_RDWR)
         except OSError:
@@ -165,6 +173,7 @@ class Endpoint:
         self._debug = debug or (lambda *a: None)
         self.ws = None
         self.reader = None
+        self.sender = None
         self.alive = False
         self.ever_connected = False
         self.next_connect = 0.0
@@ -172,6 +181,7 @@ class Endpoint:
         self._id_lock = threading.Lock()
         self._pending = {}
         self._pending_lock = threading.Lock()
+        self._send_queue = queue.Queue()
 
     def connect(self):
         ver = http_json("http://127.0.0.1:%d/json/version" % self.port)
@@ -187,7 +197,26 @@ class Endpoint:
             target=self._read_loop, args=(ws,),
             name="cdp-%d" % self.port, daemon=True)
         self.reader.start()
+        self.sender = threading.Thread(
+            target=self._send_loop, args=(ws,),
+            name="cdp-send-%d" % self.port, daemon=True)
+        self.sender.start()
         self.call("Target.setDiscoverTargets", {"discover": True})
+
+    def _send_loop(self, ws):
+        # A dedicated writer keeps a stuck sendall() from freezing the daemon's
+        # main loop. On failure the whole endpoint is dead; close() reconnects.
+        while self.alive and self.ws is ws:
+            msg = self._send_queue.get()
+            if msg is None:
+                return
+            try:
+                ws.send_text(msg)
+            except Exception as e:
+                if self.ws is ws:
+                    self.alive = False
+                    self._fail_pending(WSError("send failed: %s" % e))
+                return
 
     def _read_loop(self, ws):
         try:
@@ -242,15 +271,17 @@ class Endpoint:
         if session:
             msg["sessionId"] = session
         self._debug(describe_command(method, params))
-        try:
-            self.ws.send_text(json.dumps(msg))
-        except Exception as e:
+        if not self.alive or self.ws is None:
             with self._pending_lock:
                 self._pending.pop(mid, None)
-            raise WSError("send %s failed: %s" % (method, e))
+            raise WSError("endpoint :%d is not connected" % self.port)
+        self._send_queue.put(json.dumps(msg))
         if not ev.wait(timeout):
             with self._pending_lock:
                 self._pending.pop(mid, None)
+            # A peer that never answers is untrusted: drop the endpoint and let
+            # _ensure_endpoint reconnect instead of keeping a dead session.
+            self.close()
             raise WSError("timeout waiting for %s" % method)
         if "error" in box:
             raise WSError("%s: %s" % (method, box["error"]))
@@ -270,6 +301,7 @@ class Endpoint:
 
     def close(self):
         self.alive = False
+        self._send_queue.put(None)
         self._fail_pending(WSError("closed"))
         if self.ws is not None:
             try:
@@ -281,3 +313,7 @@ class Endpoint:
         self.reader = None
         if reader is not None and reader is not threading.current_thread():
             reader.join(timeout=1.0)
+        sender = self.sender
+        self.sender = None
+        if sender is not None and sender is not threading.current_thread():
+            sender.join(timeout=1.0)
