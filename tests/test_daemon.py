@@ -285,6 +285,11 @@ class InjectionExprTests(unittest.TestCase):
         self.assertIn(".ui.teardown", e)
         self.assertIn(".gate.teardown", e)
 
+    def test_teardown_isolates_each_cleanup(self):
+        e = d.teardown_expr()
+        self.assertGreaterEqual(e.count("try{"), 3)
+        self.assertGreaterEqual(e.count("catch(e)"), 3)
+
 
 class StateFileTests(unittest.TestCase):
     def test_missing_file_defaults_to_on(self):

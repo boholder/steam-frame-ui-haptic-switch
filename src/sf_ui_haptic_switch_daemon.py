@@ -162,10 +162,10 @@ def page_script(sources, slots):
 
 def teardown_expr():
     return (
-        "(function(){try{var n=window.%s;if(n){"
-        "if(n.ui&&n.ui.teardown){n.ui.teardown();}"
-        "if(n.gate&&n.gate.teardown){n.gate.teardown();}}"
-        "delete window.%s;}catch(e){}})()" % (GLOBAL, GLOBAL)
+        "(function(){var n=window.%s;if(!n)return;"
+        "try{if(n.ui&&n.ui.teardown)n.ui.teardown();}catch(e){}"
+        "try{if(n.gate&&n.gate.teardown)n.gate.teardown();}catch(e){}"
+        "try{delete window.%s;}catch(e){}})()" % (GLOBAL, GLOBAL)
     )
 
 
