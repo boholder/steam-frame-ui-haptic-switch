@@ -3,6 +3,7 @@ import os
 import stat
 import sys
 import tempfile
+import threading
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
@@ -75,6 +76,38 @@ class TargetTests(unittest.TestCase):
         self.assertEqual(
             d.scripts_for("valve.steam.gamepadui.barpopup", "", d.KIND_STEAM),
             ["gate", "ui"])
+
+
+class FakeSocket:
+    def __init__(self):
+        self.sent = []
+        self.shutdown_called = False
+        self.closed = False
+
+    def sendall(self, data):
+        self.sent.append(data)
+
+    def shutdown(self, how):
+        self.shutdown_called = True
+
+    def close(self):
+        self.closed = True
+
+
+class WebSocketCloseTests(unittest.TestCase):
+    def test_close_sends_the_close_frame_before_marking_closed(self):
+        ws = object.__new__(cdp.WebSocket)
+        ws._closed = False
+        ws._send_lock = threading.Lock()
+        ws.sock = FakeSocket()
+
+        ws.close()
+
+        self.assertTrue(ws.sock.sent)
+        self.assertEqual(ws.sock.sent[0][0], 0x88)  # FIN + close opcode
+        self.assertTrue(ws._closed)
+        self.assertTrue(ws.sock.shutdown_called)
+        self.assertTrue(ws.sock.closed)
 
 
 class CommandLogTests(unittest.TestCase):

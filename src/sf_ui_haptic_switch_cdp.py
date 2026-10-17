@@ -124,11 +124,14 @@ class WebSocket:
                 continue
 
     def close(self):
-        self._closed = True
+        # Send the close frame while the socket is still open, then mark it
+        # closed even if the peer is already gone.
         try:
             self._send_frame(b"", 0x8)
         except Exception:
             pass
+        finally:
+            self._closed = True
         try:
             self.sock.shutdown(socket.SHUT_RDWR)
         except OSError:
