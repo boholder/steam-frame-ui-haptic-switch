@@ -85,6 +85,11 @@ class ContractTests(unittest.TestCase):
         self.assertIn("function finishToggle", t)
         self.assertIn("return finishToggle(", t)
 
+    def test_ui_has_one_body_id_loader(self):
+        t = read(UI)
+        self.assertIn("function loadBodyId", t)
+        self.assertEqual(t.count("sessionStorage.getItem(BODY_KEY)"), 1)
+
     def test_gate_never_uses_the_binding(self):
         self.assertNotIn("__sfHapticSend", read(GATE))
         self.assertNotIn("__sfUiHapticSwitchSend", read(GATE))

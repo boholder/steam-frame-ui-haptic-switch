@@ -151,13 +151,17 @@
            (body.querySelectorAll('[role="checkbox"]').length);
   }
 
+  function loadBodyId() {
+    try { return sessionStorage.getItem(BODY_KEY) || null; } catch (e) { return null; }
+  }
+
   function targetBody(p) {
     if (bodyId) {
       var cached = document.getElementById(bodyId);
       if (cached) return cached;
       bodyId = null;
     }
-    try { bodyId = sessionStorage.getItem(BODY_KEY) || null; } catch (e) { bodyId = null; }
+    bodyId = loadBodyId();
     if (bodyId) {
       var saved = document.getElementById(bodyId);
       if (saved) return saved;
@@ -576,7 +580,7 @@
 
   tpl = loadTemplates();
   if (tpl) {
-    try { bodyId = sessionStorage.getItem(BODY_KEY) || null; } catch (e) {}
+    bodyId = loadBodyId();
   }
 
   hookToggle();
