@@ -74,6 +74,28 @@ class TargetTests(unittest.TestCase):
             ["gate", "ui"])
 
 
+class HandshakeTests(unittest.TestCase):
+    def test_three_retries_after_the_first_send(self):
+        for attempts in (1, 2, 3, 4):
+            self.assertFalse(d.handshake_exhausted(attempts), attempts)
+        self.assertTrue(d.handshake_exhausted(5))
+
+
+class StatusTests(unittest.TestCase):
+    def test_ui_is_only_reported_for_the_steam_endpoint(self):
+        targets = [
+            {"type": "page", "title": "valve.steam.gamepadui.barpopup", "url": ""},
+            {"type": "page", "title": "systemui", "url": ""},
+            {"type": "other", "title": "ignored", "url": ""},
+        ]
+        self.assertEqual(
+            d.summarize_targets(targets, d.KIND_STEAM),
+            {"pages": 2, "ui": True})
+        self.assertEqual(
+            d.summarize_targets(targets, d.KIND_VR),
+            {"pages": 2, "ui": False})
+
+
 class InjectionExprTests(unittest.TestCase):
     def test_marker_is_stable_and_short(self):
         self.assertEqual(d.build_marker("x"), d.build_marker("x"))

@@ -14,18 +14,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$HERE/src"
 [ -d "$SRC" ] || SRC="$HERE"
 
-DEST="/home/steamos/sf-ui-haptic-switch"
-SERVICE="sf-ui-haptic-switch.service"
-TIMER="sf-ui-haptic-switch.timer"
-UNIT_DIR="/etc/systemd/system"
-CFG="/home/steamos/.config/openvr/config/steamvr.vrsettings"
-STATE_DIR="/home/steamos/.local/state/sf-ui-haptic-switch"
-
-ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
-warn() { printf '  \033[33m!\033[0m %s\n' "$*"; }
-bad()  { printf '  \033[31m✗\033[0m %s\n' "$*"; }
-step() { printf '\n\033[1m%s\033[0m\n' "$*"; }
-die()  { bad "$*"; exit 1; }
+LIB="$HERE/src/sf_ui_haptic_switch_lib.sh"
+[ -f "$LIB" ] || LIB="$HERE/sf_ui_haptic_switch_lib.sh"
+# shellcheck source=src/sf_ui_haptic_switch_lib.sh
+. "$LIB"
 
 # --------------------------------------------------------------------------
 step "1/5  检查权限与安装包"
@@ -38,7 +30,8 @@ command -v systemctl >/dev/null || die "找不到 systemctl"
 ok "python3 + systemctl 就绪"
 
 for f in sf_ui_haptic_switch_gate.js sf_ui_haptic_switch_ui.js \
-         sf_ui_haptic_switch_daemon.py sf_ui_haptic_switch_settings.py \
+         sf_ui_haptic_switch_daemon.py sf_ui_haptic_switch_cdp.py \
+         sf_ui_haptic_switch_settings.py \
          sf-ui-haptic-switch.service; do
   [ -f "$SRC/$f" ] || die "安装包不完整，缺少 $SRC/$f"
 done
@@ -63,6 +56,7 @@ copy() {  # copy <文件名> <权限>
 copy sf_ui_haptic_switch_gate.js     0644
 copy sf_ui_haptic_switch_ui.js       0644
 copy sf_ui_haptic_switch_daemon.py   0755
+copy sf_ui_haptic_switch_cdp.py      0644
 copy sf_ui_haptic_switch_settings.py 0644
 
 # 旧版本的 oneshot 注入器与 timer 不再使用
@@ -92,10 +86,19 @@ ok "旧 timer 已停用并删除；旧 service 已停止"
 step "4/5  打开 SteamVR Dashboard 调试端口"
 # --------------------------------------------------------------------------
 # 只改 VRWebHelper.DebuggerEnabled；driver_deckard.showDevTools 等其它键不动。
+if [ -f "$CFG" ]; then had_cfg=1; else had_cfg=0; fi
 if python3 "$SRC/sf_ui_haptic_switch_settings.py" --enable "$CFG"; then
-  ok "VRWebHelper.DebuggerEnabled = true（备份：$CFG.bak）"
+  if [ "$had_cfg" -eq 1 ]; then
+    ok "VRWebHelper.DebuggerEnabled = true（备份：$CFG.bak）"
+  else
+    ok "VRWebHelper.DebuggerEnabled = true（新建 $CFG）"
+  fi
 else
-  warn "无法写入 $CFG；:8087 不会启用。原文件备份在 $CFG.bak"
+  if [ "$had_cfg" -eq 1 ]; then
+    warn "无法写入 $CFG；:8087 不会启用。原文件备份在 $CFG.bak"
+  else
+    warn "无法创建 $CFG；:8087 不会启用"
+  fi
 fi
 
 if pgrep -f '[v]rserver' >/dev/null 2>&1; then

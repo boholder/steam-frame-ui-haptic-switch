@@ -40,24 +40,35 @@ class ScriptContractTests(unittest.TestCase):
     def test_install_installs_the_daemon_and_enables_the_vr_debugger(self):
         t = read(os.path.join(ROOT, "install.sh"))
         self.assertIn("sf_ui_haptic_switch_daemon.py", t)
+        self.assertIn("sf_ui_haptic_switch_cdp.py", t)
+        self.assertIn("sf_ui_haptic_switch_lib.sh", t)
         self.assertIn("systemctl enable", t)
         self.assertIn("sf-ui-haptic-switch.timer", t)   # removed on upgrade
         self.assertIn("sf_ui_haptic_switch_settings.py", t)
         self.assertIn("--enable", t)
-        self.assertIn("steamvr.vrsettings", t)
         self.assertNotIn("--teardown", t)
         helper = read(os.path.join(SRC, "sf_ui_haptic_switch_settings.py"))
         self.assertIn("VRWebHelper", helper)
         self.assertIn("DebuggerEnabled", helper)
+        lib = read(os.path.join(SRC, "sf_ui_haptic_switch_lib.sh"))
+        self.assertIn("steamvr.vrsettings", lib)
 
     def test_uninstall_removes_the_daemon_and_the_debugger_key(self):
         t = read(os.path.join(ROOT, "uninstall.sh"))
-        self.assertIn("sf-ui-haptic-switch.timer", t)
+        self.assertIn("$TIMER", t)
         self.assertIn("systemctl", t)
+        self.assertIn("sf_ui_haptic_switch_lib.sh", t)
         self.assertIn("sf_ui_haptic_switch_settings.py", t)
         self.assertIn("--disable", t)
-        self.assertIn("steamvr.vrsettings", t)
         self.assertNotIn("--teardown", t)
+        lib = read(os.path.join(SRC, "sf_ui_haptic_switch_lib.sh"))
+        self.assertIn("steamvr.vrsettings", lib)
+        self.assertIn("TIMER=\"sf-ui-haptic-switch.timer\"", lib)
+        self.assertIn("STATE_DIR", lib)
+
+    def test_cdp_transport_module_exists(self):
+        self.assertTrue(os.path.exists(
+            os.path.join(SRC, "sf_ui_haptic_switch_cdp.py")))
 
 
 if __name__ == "__main__":

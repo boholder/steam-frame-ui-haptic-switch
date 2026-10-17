@@ -73,7 +73,9 @@ reconnect, and whenever a page gets a new execution context.
 | `src/sf_ui_haptic_switch_gate.js` | wraps both haptic bridges; gates the two button effects |
 | `src/sf_ui_haptic_switch_ui.js` | renders the switch and notifies the daemon |
 | `src/sf_ui_haptic_switch_daemon.py` | resident daemon (Python 3, stdlib only) |
+| `src/sf_ui_haptic_switch_cdp.py` | CDP transport: WebSocket, reader thread, endpoint sessions |
 | `src/sf_ui_haptic_switch_settings.py` | safe `steamvr.vrsettings` editor used by install/uninstall |
+| `src/sf_ui_haptic_switch_lib.sh` | shared install/uninstall constants and output helpers |
 | `src/sf-ui-haptic-switch.service` | systemd daemon unit |
 
 Installed layout:

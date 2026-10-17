@@ -9,9 +9,10 @@
 ## 实现状态
 
 - 分支：`t7-daemon-8087`
-- 单测：`python -m unittest discover -s tests` → 44 passed，1 skipped
+- 单测：`python -m unittest discover -s tests` → 48 passed，1 skipped
   （Windows 上跳过 POSIX mode 断言）
-- 文件：`src/sf_ui_haptic_switch_daemon.py`、`sf_ui_haptic_switch_settings.py`、
+- 文件：`src/sf_ui_haptic_switch_daemon.py`、`sf_ui_haptic_switch_cdp.py`、
+  `sf_ui_haptic_switch_settings.py`、`sf_ui_haptic_switch_lib.sh`、
   `sf_ui_haptic_switch_gate.js`、`sf_ui_haptic_switch_ui.js`、
   `sf-ui-haptic-switch.service`、`install.sh`、`uninstall.sh`、`README.md`、`tests/`
 - 真机验收：待执行（见文末清单）
@@ -255,7 +256,10 @@ WantedBy=multi-user.target
 | 文件 | 动作 |
 | --- | --- |
 | `src/sf_ui_haptic_switch_inject.py` | 删除；内容重写为 daemon |
-| `src/sf_ui_haptic_switch_daemon.py` | 新增 |
+| `src/sf_ui_haptic_switch_daemon.py` | 新增（daemon/状态/CLI） |
+| `src/sf_ui_haptic_switch_cdp.py` | 新增（WebSocket/CDP 传输） |
+| `src/sf_ui_haptic_switch_settings.py` | 新增（vrsettings 编辑） |
+| `src/sf_ui_haptic_switch_lib.sh` | 新增（install/uninstall 共享常量） |
 | `src/sf_ui_haptic_switch_gate.js` | 双桥 + 效果注释 + teardown |
 | `src/sf_ui_haptic_switch_ui.js` | 写 localStorage 后发送 binding |
 | `src/sf-ui-haptic-switch.service` | 改为常驻 daemon |
@@ -264,6 +268,7 @@ WantedBy=multi-user.target
 | `uninstall.sh` | 停服务、清理 timer、删除配置键、状态目录与文件 |
 | `tests/test_inject.py` | 删除/替换 |
 | `tests/test_daemon.py` | 新增纯逻辑单测 |
+| `tests/test_settings.py` | 新增 vrsettings 编辑单测 |
 | `tests/test_scripts_parse.py` | 更新契约（binding 名、双桥、注释） |
 | `tests/test_units.py` | 更新 service 断言（`Type=simple`、`RestartSec=1`、无 timer） |
 | `README.md` | 重写为常驻 daemon + 双端点 |

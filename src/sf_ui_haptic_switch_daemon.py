@@ -25,19 +25,15 @@ Python 3, standard library only (the device has no websocket package).
 from __future__ import annotations
 
 import argparse
-import base64
 import hashlib
 import json
 import os
 import queue
-import re
 import signal
-import socket
-import struct
 import sys
-import threading
 import time
-import urllib.request
+
+from sf_ui_haptic_switch_cdp import Endpoint, http_json
 
 # --------------------------------------------------------------------------
 # configuration
@@ -45,6 +41,9 @@ import urllib.request
 
 DEFAULT_STEAM_PORT = 8080
 DEFAULT_VR_PORT = 8087
+
+KIND_STEAM = "steam"
+KIND_VR = "vr"
 
 GLOBAL = "__SF_UI_HAPTIC_SWITCH__"
 BINDING = "__sfUiHapticSwitchSend"
@@ -59,7 +58,8 @@ SLOT_UI = "ui"
 
 RETRY_SECONDS = 1.0
 HANDSHAKE_TIMEOUT = 1.0
-HANDSHAKE_ATTEMPTS = 3
+HANDSHAKE_RETRIES = 3
+HANDSHAKE_MAX_SENDS = 1 + HANDSHAKE_RETRIES
 LOOP_SECONDS = 0.05
 
 VERBOSE = False
@@ -120,14 +120,14 @@ def is_ui_target(title, url):
     return UI_MATCH in ((title or "") + (url or ""))
 
 
-def scripts_for(title, url, kind="steam"):
+def scripts_for(title, url, kind=KIND_STEAM):
     """Which scripts a page needs.
 
     The gate goes everywhere. The QAM UI is a Steam-client concept: it must
     never be installed into a SteamVR Dashboard page, even if a Dashboard URL
     happens to contain the barpopup key.
     """
-    if kind == "steam" and is_ui_target(title, url):
+    if kind == KIND_STEAM and is_ui_target(title, url):
         return [SLOT_GATE, SLOT_UI]
     return [SLOT_GATE]
 
@@ -167,6 +167,11 @@ def teardown_expr():
         "if(n.gate&&n.gate.teardown){n.gate.teardown();}}"
         "delete window.%s;}catch(e){}})()" % (GLOBAL, GLOBAL)
     )
+
+
+def handshake_exhausted(attempts):
+    """The first send plus HANDSHAKE_RETRIES retries are allowed."""
+    return attempts > HANDSHAKE_MAX_SENDS
 
 
 def default_state_path():
@@ -214,268 +219,6 @@ def load_sources(script_dir):
 
 
 # --------------------------------------------------------------------------
-# minimal websocket client (stdlib only)
-# --------------------------------------------------------------------------
-
-class WSError(Exception):
-    pass
-
-
-class WebSocket:
-    def __init__(self, url, timeout=10.0):
-        m = re.match(r"ws://([^/:]+)(?::(\d+))?(/.*)?$", url)
-        if not m:
-            raise WSError("bad ws url: %r" % url)
-        host = m.group(1)
-        port = int(m.group(2) or 80)
-        path = m.group(3) or "/"
-
-        self.sock = socket.create_connection((host, port), timeout)
-        self.sock.settimeout(timeout)
-        key = base64.b64encode(os.urandom(16)).decode()
-        req = ("GET %s HTTP/1.1\r\n"
-               "Host: %s:%d\r\n"
-               "Upgrade: websocket\r\n"
-               "Connection: Upgrade\r\n"
-               "Sec-WebSocket-Key: %s\r\n"
-               "Sec-WebSocket-Version: 13\r\n\r\n" % (path, host, port, key))
-        self.sock.sendall(req.encode())
-
-        buf = b""
-        while b"\r\n\r\n" not in buf:
-            chunk = self.sock.recv(4096)
-            if not chunk:
-                raise WSError("handshake: connection closed")
-            buf += chunk
-        head, _, rest = buf.partition(b"\r\n\r\n")
-        status = head.split(b"\r\n")[0]
-        if b"101" not in status:
-            raise WSError("handshake failed: %s" % status.decode("utf-8", "replace"))
-        self._buf = rest
-        self._frag = b""
-        self._send_lock = threading.Lock()
-        self._closed = False
-        # The reader thread blocks on recv(); close() wakes it with shutdown().
-        self.sock.settimeout(None)
-
-    def _read(self, n):
-        while len(self._buf) < n:
-            chunk = self.sock.recv(65536)
-            if not chunk:
-                raise WSError("connection closed")
-            self._buf += chunk
-        out, self._buf = self._buf[:n], self._buf[n:]
-        return out
-
-    def _send_frame(self, payload, opcode=0x1):
-        with self._send_lock:
-            if self._closed:
-                raise WSError("socket closed")
-            header = bytearray()
-            header.append(0x80 | opcode)
-            n = len(payload)
-            if n < 126:
-                header.append(0x80 | n)
-            elif n < (1 << 16):
-                header.append(0x80 | 126)
-                header += struct.pack("!H", n)
-            else:
-                header.append(0x80 | 127)
-                header += struct.pack("!Q", n)
-            mask = os.urandom(4)
-            header += mask
-            masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
-            self.sock.sendall(bytes(header) + masked)
-
-    def send_text(self, text):
-        self._send_frame(text.encode("utf-8"), 0x1)
-
-    def recv_text(self):
-        while True:
-            b1, b2 = self._read(2)
-            fin = b1 & 0x80
-            opcode = b1 & 0x0F
-            masked = b2 & 0x80
-            length = b2 & 0x7F
-            if length == 126:
-                length = struct.unpack("!H", self._read(2))[0]
-            elif length == 127:
-                length = struct.unpack("!Q", self._read(8))[0]
-            mask = self._read(4) if masked else b""
-            payload = self._read(length)
-            if mask:
-                payload = bytes(c ^ mask[i % 4] for i, c in enumerate(payload))
-
-            if opcode == 0x8:
-                raise WSError("server sent close")
-            if opcode == 0x9:
-                self._send_frame(payload, 0xA)
-                continue
-            if opcode == 0xA:
-                continue
-            if opcode in (0x0, 0x1, 0x2):
-                self._frag += payload
-                if fin:
-                    data, self._frag = self._frag, b""
-                    return data.decode("utf-8", "replace")
-            else:
-                continue
-
-    def close(self):
-        self._closed = True
-        try:
-            self._send_frame(b"", 0x8)
-        except Exception:
-            pass
-        try:
-            self.sock.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
-        try:
-            self.sock.close()
-        except OSError:
-            pass
-
-
-# --------------------------------------------------------------------------
-# endpoint adapter
-# --------------------------------------------------------------------------
-
-def http_json(url, timeout=5.0):
-    with urllib.request.urlopen(url, timeout=timeout) as r:
-        return json.load(r)
-
-
-class Endpoint:
-    """One browser-level CDP connection plus its reader thread."""
-
-    def __init__(self, port, events, kind):
-        self.port = port
-        self.events = events
-        self.kind = kind
-        self.ws = None
-        self.reader = None
-        self.alive = False
-        self.discovered = False
-        self.ever_connected = False
-        self.next_connect = 0.0
-        self._id = 0
-        self._id_lock = threading.Lock()
-        self._pending = {}
-        self._pending_lock = threading.Lock()
-
-    def connect(self):
-        ver = http_json("http://127.0.0.1:%d/json/version" % self.port)
-        ws_url = ver.get("webSocketDebuggerUrl")
-        if not ws_url:
-            raise WSError("no browser webSocketDebuggerUrl on :%d" % self.port)
-        if self.reader is not None:
-            self.close()
-        ws = WebSocket(ws_url)
-        self.ws = ws
-        self.alive = True
-        self.discovered = False
-        self.reader = threading.Thread(
-            target=self._read_loop, args=(ws,),
-            name="cdp-%d" % self.port, daemon=True)
-        self.reader.start()
-        self.call("Target.setDiscoverTargets", {"discover": True})
-        self.discovered = True
-
-    def _read_loop(self, ws):
-        try:
-            while self.alive and self.ws is ws:
-                text = ws.recv_text()
-                msg = json.loads(text)
-                if "id" in msg:
-                    with self._pending_lock:
-                        item = self._pending.pop(msg.get("id"), None)
-                    if item is None:
-                        continue
-                    ev, box = item
-                    if "error" in msg:
-                        box["error"] = msg["error"]
-                    else:
-                        box["result"] = msg.get("result", {})
-                    ev.set()
-                elif "method" in msg:
-                    self.events.put((
-                        self,
-                        msg.get("method"),
-                        msg.get("params") or {},
-                        msg.get("sessionId"),
-                    ))
-        except Exception as e:
-            _debug("endpoint :%d reader stopped: %s" % (self.port, e))
-        finally:
-            # Only the reader that owns the current socket may flip the state;
-            # a stale reader must not clobber a freshly reconnected endpoint.
-            if self.ws is ws:
-                self.alive = False
-                self._fail_pending(
-                    WSError("endpoint :%d disconnected" % self.port))
-
-    def _fail_pending(self, error):
-        with self._pending_lock:
-            pending = list(self._pending.values())
-            self._pending.clear()
-        for ev, box in pending:
-            box["error"] = error
-            ev.set()
-
-    def call(self, method, params=None, session=None, timeout=10.0):
-        with self._id_lock:
-            self._id += 1
-            mid = self._id
-        ev = threading.Event()
-        box = {}
-        with self._pending_lock:
-            self._pending[mid] = (ev, box)
-        msg = {"id": mid, "method": method, "params": params or {}}
-        if session:
-            msg["sessionId"] = session
-        try:
-            self.ws.send_text(json.dumps(msg))
-        except Exception as e:
-            with self._pending_lock:
-                self._pending.pop(mid, None)
-            raise WSError("send %s failed: %s" % (method, e))
-        if not ev.wait(timeout):
-            with self._pending_lock:
-                self._pending.pop(mid, None)
-            raise WSError("timeout waiting for %s" % method)
-        if "error" in box:
-            raise WSError("%s: %s" % (method, box["error"]))
-        return box.get("result", {})
-
-    def evaluate(self, expr, session=None, timeout=10.0):
-        res = self.call("Runtime.evaluate", {
-            "expression": expr,
-            "returnByValue": True,
-            "userGesture": True,
-            "awaitPromise": False,
-        }, session=session, timeout=timeout)
-        if res.get("exceptionDetails"):
-            raise WSError("js exception: %s" % json.dumps(
-                res["exceptionDetails"], ensure_ascii=False)[:400])
-        return res.get("result", {}).get("value")
-
-    def close(self):
-        self.alive = False
-        self._fail_pending(WSError("closed"))
-        if self.ws is not None:
-            try:
-                self.ws.close()
-            except Exception:
-                pass
-            self.ws = None
-        reader = self.reader
-        self.reader = None
-        if reader is not None and reader is not threading.current_thread():
-            reader.join(timeout=1.0)
-
-
-# --------------------------------------------------------------------------
 # daemon
 # --------------------------------------------------------------------------
 
@@ -486,8 +229,8 @@ class Session:
         self.target_id = target_id
         self.title = title
         self.url = url
-        self.is_ui = endpoint.kind == "steam" and is_ui_target(title, url)
         self.slots = scripts_for(title, url, endpoint.kind)
+        self.is_ui = SLOT_UI in self.slots
         self.addscript_id = None
         self.handshake_ok = False
         self.handshake_attempts = 0
@@ -503,25 +246,23 @@ class Session:
 
     @property
     def steam(self):
-        return self.endpoint.kind == "steam"
+        return self.endpoint.kind == KIND_STEAM
 
     @property
     def vr(self):
-        return self.endpoint.kind == "vr"
+        return self.endpoint.kind == KIND_VR
 
 
 class Daemon:
     def __init__(self, steam_port, vr_port, sources, state_file):
-        self.steam_port = steam_port
-        self.vr_port = vr_port
         self.sources = sources
         self.markers = {slot: build_marker(src) for slot, src in sources.items()}
         self.state_file = state_file
         self.enabled = load_state(state_file)
         self.events = queue.Queue()
         self.endpoints = [
-            Endpoint(steam_port, self.events, kind="steam"),
-            Endpoint(vr_port, self.events, kind="vr"),
+            Endpoint(steam_port, self.events, KIND_STEAM, debug=_debug),
+            Endpoint(vr_port, self.events, KIND_VR, debug=_debug),
         ]
         self.sessions = {}
         self.target_sessions = {}
@@ -535,7 +276,7 @@ class Daemon:
         for sid, session in list(self.sessions.items()):
             if session.endpoint is endpoint:
                 self._drop_session(sid)
-        if endpoint.port == self.steam_port:
+        if endpoint.kind == KIND_STEAM:
             self.steam_synced = False
 
     def _ensure_endpoint(self, endpoint, now):
@@ -636,26 +377,29 @@ class Daemon:
             self.target_sessions[key] = session_id
             session.call("Runtime.enable")
             session.call("Page.enable")
-            try:
-                added = session.call(
-                    "Page.addScriptToEvaluateOnNewDocument",
-                    {"source": page_script(self.sources, session.slots)})
-                session.addscript_id = added.get("identifier")
-            except Exception as e:
-                _debug("addScript failed on %s: %s" % (session.title, e))
-            self._inject_current(session)
-            if session.is_ui:
-                self._start_handshake(session)
-            if session.vr:
-                self._push_session(session)
-            if session.steam and not self.steam_synced:
-                self._sync_from_steam()
+            self._prepare_session(session)
             _debug("attached target %s (%s) on :%d" % (
                 session.title, session.slots, endpoint.port))
         except Exception as e:
             log("attach failed on :%d target %s: %s" % (
                 endpoint.port, info.get("title"), e))
             self._drop_target(endpoint, target_id)
+
+    def _prepare_session(self, session):
+        try:
+            added = session.call(
+                "Page.addScriptToEvaluateOnNewDocument",
+                {"source": page_script(self.sources, session.slots)})
+            session.addscript_id = added.get("identifier")
+        except Exception as e:
+            _debug("addScript failed on %s: %s" % (session.title, e))
+        self._inject_current(session)
+        if session.is_ui:
+            self._start_handshake(session)
+        if session.vr:
+            self._push_session(session)
+        if session.steam and not self.steam_synced:
+            self._sync_from_steam()
 
     def _refresh_target(self, endpoint, info):
         target_id = info.get("targetId")
@@ -667,13 +411,12 @@ class Daemon:
             return
         session.title = info.get("title") or session.title
         session.url = info.get("url") or session.url
-        if (not session.is_ui and endpoint.kind == "steam"
-                and is_ui_target(session.title, session.url)):
+        slots = scripts_for(session.title, session.url, endpoint.kind)
+        if SLOT_UI in slots and not session.is_ui:
             session.is_ui = True
-            session.slots = scripts_for(session.title, session.url, endpoint.kind)
+            session.slots = slots
             try:
-                self._inject_current(session)
-                self._start_handshake(session)
+                self._prepare_session(session)
             except Exception as e:
                 _debug("ui upgrade failed: %s" % e)
 
@@ -746,7 +489,7 @@ class Daemon:
                 continue
             if not session.handshake_deadline or now < session.handshake_deadline:
                 continue
-            if session.handshake_attempts >= HANDSHAKE_ATTEMPTS:
+            if handshake_exhausted(session.handshake_attempts):
                 log("binding handshake failed after %d attempts; restarting" %
                     session.handshake_attempts)
                 self.fatal = True
@@ -765,7 +508,7 @@ class Daemon:
                 self._sync_from_steam()
             return
         _debug("binding <- %s" % payload[:120])
-        self._on_user_change(msg.get("enabled"))
+        self._on_user_change()
 
     # -- state --------------------------------------------------------------
 
@@ -773,16 +516,14 @@ class Daemon:
         # The QAM page is always the best place to read the flag. The fallback
         # avoids the data: utility target, whose origin is not the shared
         # steamloopback.host storage.
-        for session in self.sessions.values():
-            if session.steam and session.is_ui:
+        candidates = [s for s in self.sessions.values() if s.steam]
+        for session in candidates:
+            if session.is_ui:
                 return session
-        for session in self.sessions.values():
-            if session.steam and not (session.url or "").startswith("data:"):
+        for session in candidates:
+            if not (session.url or "").startswith("data:"):
                 return session
-        for session in self.sessions.values():
-            if session.steam:
-                return session
-        return None
+        return candidates[0] if candidates else None
 
     def _read_steam_enabled(self):
         session = self._choose_steam_session()
@@ -814,12 +555,13 @@ class Daemon:
             _debug("state <- :8080 %s" % storage_value(enabled))
         self._push_vr()
 
-    def _on_user_change(self, hint):
+    def _on_user_change(self):
         enabled = self._read_steam_enabled()
         if enabled is None:
-            if hint is None:
-                return
-            enabled = bool(hint)
+            # :8080 is the authority and could not be read. Keep the persisted
+            # value; never persist the binding hint in its place.
+            self._push_vr()
+            return
         if self._set_enabled(enabled):
             log("switch -> %s" % storage_value(enabled))
         self.steam_synced = True
@@ -857,27 +599,35 @@ class Daemon:
 # status
 # --------------------------------------------------------------------------
 
+def summarize_targets(targets, kind):
+    pages = 0
+    ui = False
+    for target in targets:
+        if not is_page_target(target):
+            continue
+        pages += 1
+        if kind == KIND_STEAM and is_ui_target(
+                target.get("title"), target.get("url")):
+            ui = True
+    return {"pages": pages, "ui": ui}
+
+
 def status(state_file, steam_port, vr_port):
-    def endpoint(port):
+    def endpoint(port, kind):
         info = {"port": port, "reachable": False, "pages": 0, "ui": False}
         try:
             targets = http_json("http://127.0.0.1:%d/json/list" % port)
         except Exception:
             return info
         info["reachable"] = True
-        for t in targets:
-            if not is_page_target(t):
-                continue
-            info["pages"] += 1
-            if is_ui_target(t.get("title"), t.get("url")):
-                info["ui"] = True
+        info.update(summarize_targets(targets, kind))
         return info
 
     print(json.dumps({
         "enabled": load_state(state_file),
         "stateFile": state_file,
-        "steam": endpoint(steam_port),
-        "vr": endpoint(vr_port),
+        "steam": endpoint(steam_port, KIND_STEAM),
+        "vr": endpoint(vr_port, KIND_VR),
     }, ensure_ascii=False, indent=2))
     return 0
 
