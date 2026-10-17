@@ -116,6 +116,18 @@ class ContractTests(unittest.TestCase):
         self.assertIn("removeAttribute('id')", t)
         self.assertGreaterEqual(t.count("stripIds("), 3)
 
+    def test_ui_throttles_before_marking_a_pointerdown(self):
+        t = read(UI)
+        m = re.search(r"function flip\(ev\) \{(.*?)\n    \}", t, re.S)
+        self.assertIsNotNone(m)
+        body = m.group(1)
+        self.assertIn("if (ev.type === 'pointerdown')", body)
+        self.assertIn(
+            "if (ev.type !== 'pointerdown' && ev.preventDefault) "
+            "ev.preventDefault();", body)
+        self.assertGreater(
+            body.index("sawDown = now"), body.index("lastFlip < 250"))
+
     def test_gate_never_uses_the_binding(self):
         self.assertNotIn("__sfHapticSend", read(GATE))
         self.assertNotIn("__sfUiHapticSwitchSend", read(GATE))

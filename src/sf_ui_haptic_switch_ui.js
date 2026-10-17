@@ -549,17 +549,19 @@
     function flip(ev) {
       var cb = toggleTarget(ev);
       if (!cb) return;
-      if (ev.type === 'click') {
-        if (Date.now() - sawDown < 800) return;   /* already handled pointerdown */
-      } else {
-        if (ev.button !== undefined && ev.button !== 0) return;
-        sawDown = Date.now();
-      }
-      if (ev.preventDefault) ev.preventDefault();
-      if (ev.stopPropagation) ev.stopPropagation();
+
       var now = Date.now();
+      if (ev.type === 'click') {
+        if (now - sawDown < 800) return;   /* already handled pointerdown */
+      } else if (ev.type === 'pointerdown') {
+        if (ev.button !== undefined && ev.button !== 0) return;
+      }
       if (now - lastFlip < 250) return;
+      if (ev.type === 'pointerdown') sawDown = now;
       lastFlip = now;
+
+      if (ev.type !== 'pointerdown' && ev.preventDefault) ev.preventDefault();
+      if (ev.stopPropagation) ev.stopPropagation();
 
       var shown = cb.getAttribute(STATE_ATTR);
       var on = shown === '1' ? true
