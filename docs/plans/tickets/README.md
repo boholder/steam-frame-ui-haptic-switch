@@ -27,5 +27,5 @@ T7 (done) ─> T8 审计确认的运行时/UI 修复
 - **重命名/前缀统一**折进各组件 ticket。
 - 当前设计见 `T7-daemon-8087.md`；T0 结果见 `../../research/t0-device-probe.md`。
 - T7 已实现（master；原 `t7-daemon-8087` 分支已删除）；真机验收待执行。
-- T8 只列已确认的修复项，先不实现；见 `T8-cleanup-fixes.md`。
+- T8 设计已定稿（含 grilling 结论与测试 seam），待实现；见 `T8-cleanup-fixes.md`。
 - GitHub remote 已配置，但本计划的 ticket 仍以本地文件为准（T7 Q7 A）。
