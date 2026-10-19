@@ -363,6 +363,8 @@ GLOBAL = "__SF_UI_HAPTIC_SWITCH__"
 BINDING = "__sfUiHapticSwitchSend"
 KEY = "sf_ui_haptic_switch"
 UI_MATCH = "valve.steam.gamepadui.barpopup"
+# that very bottom menu that always appears below,
+# contains steam logo, opened tabs, quick settings, user avatar.
 
 GATE_JS = "sf_ui_haptic_switch_gate.js"
 UI_JS = "sf_ui_haptic_switch_ui.js"
@@ -519,7 +521,8 @@ def save_state(path, enabled):
     os.replace(tmp, path)
 
 
-def load_sources(script_dir):
+def load_js_sources(script_dir):
+    """{"gate":"gate js content", "ui":"ui js content"}"""
     sources = {}
     for slot, name in ((SLOT_GATE, GATE_JS), (SLOT_UI, UI_JS)):
         with open(os.path.join(script_dir, name), encoding="utf-8") as f:
@@ -587,9 +590,9 @@ class Session:
 
 
 class Daemon:
-    def __init__(self, steam_port, vr_port, sources, state_file):
-        self.sources = sources
-        self.markers = {slot: build_marker(src) for slot, src in sources.items()}
+    def __init__(self, steam_port, vr_port, js_sources, state_file):
+        self.js_sources = js_sources
+        self.markers = {slot: build_marker(src) for slot, src in js_sources.items()}
         self.state_file = state_file
         self.enabled = load_state(state_file)
         self.events = queue.Queue()
@@ -730,7 +733,7 @@ class Daemon:
         try:
             session.call(
                 "Page.addScriptToEvaluateOnNewDocument",
-                {"source": page_script(self.sources, session.slots)})
+                {"source": page_script(self.js_sources, session.slots)})
         except Exception as e:
             _debug("addScript failed on %s: %s" % (session.title, e))
         self._inject_current(session)
@@ -779,7 +782,7 @@ class Daemon:
 
     def _inject_current(self, session):
         for slot in session.slots:
-            source = self.sources.get(slot)
+            source = self.js_sources.get(slot)
             if source is None:
                 continue
             marker = self.markers[slot]
@@ -942,20 +945,20 @@ class Daemon:
 # status
 # --------------------------------------------------------------------------
 
-def summarize_targets(targets, kind):
-    pages = 0
-    ui = False
-    for target in targets:
-        if not is_page_target(target):
-            continue
-        pages += 1
-        if kind == KIND_STEAM and is_ui_target(
-                target.get("title"), target.get("url")):
-            ui = True
-    return {"pages": pages, "ui": ui}
-
-
 def status(state_file, steam_port, vr_port):
+    def summarize_targets(targets, kind):
+        pages = 0
+        ui = False
+        for target in targets:
+            if not is_page_target(target):
+                continue
+            pages += 1
+            # there is only one special ui page that we want to inject our switch
+            if (kind == KIND_STEAM and
+                is_ui_target(target.get("title"), target.get("url"))):
+                ui = True
+        return {"pages": pages, "ui": ui}
+
     def endpoint(port, kind):
         info = {"port": port, "reachable": False, "pages": 0, "ui": False}
         try:
@@ -991,7 +994,7 @@ def parse_args(argv=None):
     ap.add_argument("--script-dir", default=here,
                     help="directory holding the two .js scripts (default: this file's dir)")
     ap.add_argument("--state-file", default=None,
-                    help="state file (default: XDG state directory)")
+                    help="state file (default: $XDG_STATE_HOME first, then ~/.local/state)")
     ap.add_argument("--status", action="store_true",
                     help="print the persisted value and endpoint status, then exit")
     ap.add_argument("--verbose", action="store_true")
@@ -1008,7 +1011,7 @@ def main(argv=None):
         return status(state_file, args.steamwebhelper_port, args.vrwebhelper_port)
 
     try:
-        sources = load_sources(args.script_dir)
+        source_map = load_js_sources(args.script_dir)
     except OSError as e:
         log("cannot read scripts from %s: %s" % (args.script_dir, e))
         return 2
@@ -1016,7 +1019,7 @@ def main(argv=None):
     daemon = Daemon(
         args.steamwebhelper_port,
         args.vrwebhelper_port,
-        sources,
+        source_map,
         state_file,
     )
 

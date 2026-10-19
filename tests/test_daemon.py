@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import queue
@@ -348,12 +349,24 @@ class StatusTests(unittest.TestCase):
             {"type": "page", "title": "systemui", "url": ""},
             {"type": "other", "title": "ignored", "url": ""},
         ]
+
+        output = io.StringIO()
+        with mock.patch.object(d, "http_json", return_value=targets), \
+             mock.patch.object(d, "load_state", return_value=True), \
+             mock.patch("sys.stdout", output):
+            result = d.status("unused-state.json", 8080, 8087)
+
+        self.assertEqual(result, 0)
+        data = json.loads(output.getvalue())
+
         self.assertEqual(
-            d.summarize_targets(targets, d.KIND_STEAM),
-            {"pages": 2, "ui": True})
+            data["steam"],
+            {"port": 8080, "reachable": True, "pages": 2, "ui": True},
+        )
         self.assertEqual(
-            d.summarize_targets(targets, d.KIND_VR),
-            {"pages": 2, "ui": False})
+            data["vr"],
+            {"port": 8087, "reachable": True, "pages": 2, "ui": False},
+        )
 
 
 class InjectionExprTests(unittest.TestCase):
