@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """sf-ui-haptic-switch daemon.
 
 A small resident process that keeps the "Controller UI Haptic" switch alive
@@ -40,19 +39,20 @@ import struct
 import sys
 import threading
 import time
+import typing
 import urllib.request
-
 
 # --------------------------------------------------------------------------
 # CDP transport
 # --------------------------------------------------------------------------
+
 
 class WSError(Exception):
     pass
 
 
 class WebSocket:
-    def __init__(self, url, timeout=10.0):
+    def __init__(self, url: str, timeout: float = 10.0) -> None:
         m = re.match(r"ws://([^/:]+)(?::(\d+))?(/.*)?$", url)
         if not m:
             raise WSError("bad ws url: %r" % url)
@@ -63,12 +63,14 @@ class WebSocket:
         self.sock = socket.create_connection((host, port), timeout)
         self.sock.settimeout(timeout)
         key = base64.b64encode(os.urandom(16)).decode()
-        req = ("GET %s HTTP/1.1\r\n"
-               "Host: %s:%d\r\n"
-               "Upgrade: websocket\r\n"
-               "Connection: Upgrade\r\n"
-               "Sec-WebSocket-Key: %s\r\n"
-               "Sec-WebSocket-Version: 13\r\n\r\n" % (path, host, port, key))
+        req = (
+            "GET %s HTTP/1.1\r\n"
+            "Host: %s:%d\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            "Sec-WebSocket-Key: %s\r\n"
+            "Sec-WebSocket-Version: 13\r\n\r\n" % (path, host, port, key)
+        )
         self.sock.sendall(req.encode())
 
         buf = b""
@@ -88,7 +90,7 @@ class WebSocket:
         # The reader thread blocks on recv(); close() wakes it with shutdown().
         self.sock.settimeout(None)
 
-    def _read(self, n):
+    def _read(self, n: int) -> bytes:
         while len(self._buf) < n:
             chunk = self.sock.recv(65536)
             if not chunk:
@@ -97,7 +99,7 @@ class WebSocket:
         out, self._buf = self._buf[:n], self._buf[n:]
         return out
 
-    def _send_frame_unlocked(self, payload, opcode=0x1):
+    def _send_frame_unlocked(self, payload: bytes, opcode: int = 0x1) -> None:
         if self._closed:
             raise WSError("socket closed")
         header = bytearray()
@@ -116,14 +118,14 @@ class WebSocket:
         masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
         self.sock.sendall(bytes(header) + masked)
 
-    def _send_frame(self, payload, opcode=0x1):
+    def _send_frame(self, payload: bytes, opcode: int = 0x1) -> None:
         with self._send_lock:
             self._send_frame_unlocked(payload, opcode)
 
-    def send_text(self, text):
+    def send_text(self, text: str) -> None:
         self._send_frame(text.encode("utf-8"), 0x1)
 
-    def recv_text(self):
+    def recv_text(self) -> str:
         while True:
             b1, b2 = self._read(2)
             fin = b1 & 0x80
@@ -154,7 +156,7 @@ class WebSocket:
             else:
                 continue
 
-    def close(self):
+    def close(self) -> None:
         # The sender may be blocked in sendall() while holding _send_lock.
         # Never wait for it here: send the close frame only if the lock is
         # free, otherwise skip straight to shutdown, which wakes sendall.
@@ -177,12 +179,12 @@ class WebSocket:
             pass
 
 
-def http_json(url, timeout=5.0):
+def http_json(url: str, timeout: float = 5.0) -> typing.Any:
     with urllib.request.urlopen(url, timeout=timeout) as r:
         return json.load(r)
 
 
-def describe_command(method, params=None):
+def describe_command(method: str, params: dict[str, typing.Any] | None = None) -> str:
     """One-line, bounded representation for --verbose command logging."""
     text = json.dumps(params or {}, ensure_ascii=False, sort_keys=True)
     if len(text) > 200:
@@ -193,24 +195,30 @@ def describe_command(method, params=None):
 class Endpoint:
     """One browser-level CDP connection plus its reader and sender threads."""
 
-    def __init__(self, port, events, kind, debug=None):
+    def __init__(
+        self,
+        port: int,
+        events: queue.Queue[tuple[Endpoint, str, dict[str, typing.Any], str | None]],
+        kind: str,
+        debug: typing.Callable[..., None] | None = None,
+    ) -> None:
         self.port = port
         self.events = events
         self.kind = kind
         self._debug = debug or (lambda *a: None)
-        self.ws = None
-        self.reader = None
-        self.sender = None
+        self.ws: WebSocket | None = None
+        self.reader: threading.Thread | None = None
+        self.sender: threading.Thread | None = None
         self.alive = False
         self.ever_connected = False
         self.next_connect = 0.0
         self._id = 0
         self._id_lock = threading.Lock()
-        self._pending = {}
+        self._pending: dict[int, tuple[threading.Event, dict[str, typing.Any]]] = {}
         self._pending_lock = threading.Lock()
-        self._send_queue = queue.Queue()
+        self._send_queue: queue.Queue[str | None] = queue.Queue()
 
-    def connect(self):
+    def connect(self) -> None:
         ver = http_json("http://127.0.0.1:%d/json/version" % self.port)
         ws_url = ver.get("webSocketDebuggerUrl")
         if not ws_url:
@@ -224,16 +232,22 @@ class Endpoint:
         self.ws = ws
         self.alive = True
         self.reader = threading.Thread(
-            target=self._read_loop, args=(ws,),
-            name="cdp-%d" % self.port, daemon=True)
+            target=self._read_loop,
+            args=(ws,),
+            name="cdp-%d" % self.port,
+            daemon=True,
+        )
         self.reader.start()
         self.sender = threading.Thread(
-            target=self._send_loop, args=(ws,),
-            name="cdp-send-%d" % self.port, daemon=True)
+            target=self._send_loop,
+            args=(ws,),
+            name="cdp-send-%d" % self.port,
+            daemon=True,
+        )
         self.sender.start()
         self.call("Target.setDiscoverTargets", {"discover": True})
 
-    def _send_loop(self, ws):
+    def _send_loop(self, ws: WebSocket) -> None:
         # A dedicated writer keeps a stuck sendall() from freezing the daemon's
         # main loop. On failure the whole endpoint is dead; close() reconnects.
         while self.alive and self.ws is ws:
@@ -248,7 +262,7 @@ class Endpoint:
                     self._fail_pending(WSError("send failed: %s" % e))
                 return
 
-    def _read_loop(self, ws):
+    def _read_loop(self, ws: WebSocket) -> None:
         try:
             while self.alive and self.ws is ws:
                 text = ws.recv_text()
@@ -265,12 +279,14 @@ class Endpoint:
                         box["result"] = msg.get("result", {})
                     ev.set()
                 elif "method" in msg:
-                    self.events.put((
-                        self,
-                        msg.get("method"),
-                        msg.get("params") or {},
-                        msg.get("sessionId"),
-                    ))
+                    self.events.put(
+                        (
+                            self,
+                            msg.get("method"),
+                            msg.get("params") or {},
+                            msg.get("sessionId"),
+                        )
+                    )
         except Exception as e:
             self._debug("endpoint :%d reader stopped: %s" % (self.port, e))
         finally:
@@ -278,10 +294,9 @@ class Endpoint:
             # a stale reader must not clobber a freshly reconnected endpoint.
             if self.ws is ws:
                 self.alive = False
-                self._fail_pending(
-                    WSError("endpoint :%d disconnected" % self.port))
+                self._fail_pending(WSError("endpoint :%d disconnected" % self.port))
 
-    def _fail_pending(self, error):
+    def _fail_pending(self, error: WSError) -> None:
         with self._pending_lock:
             pending = list(self._pending.values())
             self._pending.clear()
@@ -289,15 +304,21 @@ class Endpoint:
             box["error"] = error
             ev.set()
 
-    def call(self, method, params=None, session=None, timeout=10.0):
+    def call(
+        self,
+        method: str,
+        params: dict[str, typing.Any] | None = None,
+        session: str | None = None,
+        timeout: float = 10.0,
+    ) -> dict[str, typing.Any]:
         with self._id_lock:
             self._id += 1
             mid = self._id
         ev = threading.Event()
-        box = {}
+        box: dict[str, typing.Any] = {}
         with self._pending_lock:
             self._pending[mid] = (ev, box)
-        msg = {"id": mid, "method": method, "params": params or {}}
+        msg: dict[str, typing.Any] = {"id": mid, "method": method, "params": params or {}}
         if session:
             msg["sessionId"] = session
         self._debug(describe_command(method, params))
@@ -317,19 +338,23 @@ class Endpoint:
             raise WSError("%s: %s" % (method, box["error"]))
         return box.get("result", {})
 
-    def evaluate(self, expr, session=None, timeout=10.0):
-        res = self.call("Runtime.evaluate", {
-            "expression": expr,
-            "returnByValue": True,
-            "userGesture": True,
-            "awaitPromise": False,
-        }, session=session, timeout=timeout)
+    def evaluate(self, expr: str, session: str | None = None, timeout: float = 10.0) -> typing.Any:
+        res = self.call(
+            "Runtime.evaluate",
+            {
+                "expression": expr,
+                "returnByValue": True,
+                "userGesture": True,
+                "awaitPromise": False,
+            },
+            session=session,
+            timeout=timeout,
+        )
         if res.get("exceptionDetails"):
-            raise WSError("js exception: %s" % json.dumps(
-                res["exceptionDetails"], ensure_ascii=False)[:400])
+            raise WSError("js exception: %s" % json.dumps(res["exceptionDetails"], ensure_ascii=False)[:400])
         return res.get("result", {}).get("value")
 
-    def close(self):
+    def close(self) -> None:
         self.alive = False
         self._send_queue.put(None)
         self._fail_pending(WSError("closed"))
@@ -378,14 +403,21 @@ HANDSHAKE_RETRIES = 3
 HANDSHAKE_MAX_SENDS = 1 + HANDSHAKE_RETRIES
 LOOP_SECONDS = 0.05
 
+JS_TEAR_DOWN_EXPR = (
+    "(function(){var n=window.%s;if(!n)return;"
+    "try{if(n.ui&&n.ui.teardown)n.ui.teardown();}catch(e){}"
+    "try{if(n.gate&&n.gate.teardown)n.gate.teardown();}catch(e){}"
+    "try{delete window.%s;}catch(e){}})()" % (GLOBAL, GLOBAL)
+)
+
 VERBOSE = False
 
 
-def log(*a):
+def log(*a: object) -> None:
     print("[sf-ui-haptic-switch]", *a, file=sys.stderr, flush=True)
 
 
-def _debug(*a):
+def _debug(*a: object) -> None:
     if VERBOSE:
         log(*a)
 
@@ -394,16 +426,17 @@ def _debug(*a):
 # pure decision logic (the test seam)
 # --------------------------------------------------------------------------
 
-def normalize_enabled(value):
+
+def normalize_enabled(value: str | None) -> bool:
     """Off only for explicit "0"/"false"; missing or junk means on."""
     return not (value == "0" or value == "false")
 
 
-def storage_value(enabled):
+def storage_value(enabled: bool) -> str:
     return "1" if enabled else "0"
 
 
-def parse_binding_payload(payload):
+def parse_binding_payload(payload: str) -> dict[str, typing.Any] | None:
     """Parse a binding payload.
 
     Returns ``{"kind": "hello"}``, ``{"kind": "haptic", "enabled": bool|None}``
@@ -428,15 +461,15 @@ def parse_binding_payload(payload):
     return {"kind": "haptic", "enabled": None}
 
 
-def is_page_target(info):
+def is_page_target(info: object) -> bool:
     return isinstance(info, dict) and info.get("type") == "page"
 
 
-def is_ui_target(title, url):
+def is_ui_target(title: str | None, url: str | None) -> bool:
     return UI_MATCH in ((title or "") + (url or ""))
 
 
-def scripts_for(title, url, kind):
+def scripts_for(title: str, url: str, kind: str) -> list[str]:
     """Which scripts a page needs.
 
     The gate goes everywhere. The QAM UI is a Steam-client concept: it must
@@ -448,50 +481,38 @@ def scripts_for(title, url, kind):
     return [SLOT_GATE]
 
 
-def build_marker(source):
+def build_marker(source: str) -> str:
     return hashlib.sha1(source.encode("utf-8")).hexdigest()[:12]
 
 
-def probe_expr(slot):
-    return (
-        "((window.%s && window.%s.build && window.%s.build[%s]) || '')"
-        % (GLOBAL, GLOBAL, GLOBAL, json.dumps(slot))
-    )
+def probe_expr(slot: str) -> str:
+    return "((window.%s && window.%s.build && window.%s.build[%s]) || '')" % (GLOBAL, GLOBAL, GLOBAL, json.dumps(slot))
 
 
-def inject_expr(source, slot, marker):
-    epilogue = (
-        ";try{window.%s=window.%s||{};window.%s.build=window.%s.build||{};"
-        "window.%s.build[%s]=%s;}catch(e){}"
-        % (GLOBAL, GLOBAL, GLOBAL, GLOBAL, GLOBAL, json.dumps(slot), json.dumps(marker))
+def inject_expr(source: str, slot: str, marker: str) -> str:
+    epilogue = ";try{window.%s=window.%s||{};window.%s.build=window.%s.build||{};window.%s.build[%s]=%s;}catch(e){}" % (
+        GLOBAL,
+        GLOBAL,
+        GLOBAL,
+        GLOBAL,
+        GLOBAL,
+        json.dumps(slot),
+        json.dumps(marker),
     )
     return source + epilogue
 
 
-def page_script(sources, slots):
+def page_script(sources: dict[str, str], slots: list[str]) -> str:
     """Script registered with Page.addScriptToEvaluateOnNewDocument."""
-    return "\n;\n".join(
-        inject_expr(sources[slot], slot, build_marker(sources[slot]))
-        for slot in slots
-    )
+    return "\n;\n".join(inject_expr(sources[slot], slot, build_marker(sources[slot])) for slot in slots)
 
 
-def teardown_expr():
-    return (
-        "(function(){var n=window.%s;if(!n)return;"
-        "try{if(n.ui&&n.ui.teardown)n.ui.teardown();}catch(e){}"
-        "try{if(n.gate&&n.gate.teardown)n.gate.teardown();}catch(e){}"
-        "try{delete window.%s;}catch(e){}})()" % (GLOBAL, GLOBAL)
-    )
-
-
-def default_state_path():
-    base = os.environ.get("XDG_STATE_HOME") or os.path.join(
-        os.path.expanduser("~"), ".local", "state")
+def default_state_path() -> str:
+    base = os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state")
     return os.path.join(base, "sf-ui-haptic-switch", "state.json")
 
 
-def load_state(path):
+def load_state(path: str) -> bool:
     """Read the persisted switch value; missing/corrupt means on."""
     try:
         with open(path, encoding="utf-8") as f:
@@ -505,7 +526,7 @@ def load_state(path):
     return True
 
 
-def save_state(path, enabled):
+def save_state(path: str, enabled: bool) -> None:
     """Atomic write, 0600, creating the state directory if needed."""
     directory = os.path.dirname(path)
     if directory:
@@ -521,7 +542,7 @@ def save_state(path, enabled):
     os.replace(tmp, path)
 
 
-def load_js_sources(script_dir):
+def load_js_sources(script_dir: str) -> dict[str, str]:
     """{"gate":"gate js content", "ui":"ui js content"}"""
     sources = {}
     for slot, name in ((SLOT_GATE, GATE_JS), (SLOT_UI, UI_JS)):
@@ -534,35 +555,34 @@ def load_js_sources(script_dir):
 # daemon
 # --------------------------------------------------------------------------
 
+
 class Handshake:
     """The binding handshake for one UI session: first send + 3 retries."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._reset()
 
-    def _reset(self):
+    def _reset(self) -> None:
         self.ok = False
         self.attempts = 0
-        self.deadline = None
+        self.deadline: float | None = None
 
-    def start(self):
+    def start(self) -> None:
         self._reset()
 
-    def sent(self, now):
+    def sent(self, now: float) -> None:
         self.attempts += 1
         self.deadline = now + HANDSHAKE_TIMEOUT
 
-    def due(self, now):
-        return (not self.ok
-                and self.deadline is not None
-                and now >= self.deadline)
+    def due(self, now: float) -> bool:
+        return not self.ok and self.deadline is not None and now >= self.deadline
 
-    def exhausted(self):
+    def exhausted(self) -> bool:
         return self.attempts >= HANDSHAKE_MAX_SENDS
 
 
 class Session:
-    def __init__(self, endpoint, session_id, target_id, title, url):
+    def __init__(self, endpoint: Endpoint, session_id: str, target_id: str, title: str, url: str) -> None:
         self.endpoint = endpoint
         self.session_id = session_id
         self.target_id = target_id
@@ -572,50 +592,59 @@ class Session:
         self.is_ui = SLOT_UI in self.slots
         self.handshake = Handshake()
 
-    def call(self, method, params=None, timeout=10.0):
-        return self.endpoint.call(
-            method, params, session=self.session_id, timeout=timeout)
+    def call(
+        self,
+        method: str,
+        params: dict[str, typing.Any] | None = None,
+        timeout: float = 10.0,
+    ) -> dict[str, typing.Any]:
+        return self.endpoint.call(method, params, session=self.session_id, timeout=timeout)
 
-    def evaluate(self, expr, timeout=10.0):
-        return self.endpoint.evaluate(
-            expr, session=self.session_id, timeout=timeout)
+    def evaluate(self, expr: str, timeout: float = 10.0) -> typing.Any:
+        return self.endpoint.evaluate(expr, session=self.session_id, timeout=timeout)
 
     @property
-    def steam(self):
+    def steam(self) -> bool:
         return self.endpoint.kind == KIND_STEAM
 
     @property
-    def vr(self):
+    def vr(self) -> bool:
         return self.endpoint.kind == KIND_VR
 
 
 class Daemon:
-    def __init__(self, steam_port, vr_port, js_sources, state_file):
+    def __init__(
+        self,
+        steam_port: int,
+        vr_port: int,
+        js_sources: dict[str, str],
+        state_file: str,
+    ) -> None:
         self.js_sources = js_sources
         self.markers = {slot: build_marker(src) for slot, src in js_sources.items()}
         self.state_file = state_file
         self.enabled = load_state(state_file)
-        self.events = queue.Queue()
+        self.events: queue.Queue[tuple[Endpoint, str, dict[str, typing.Any], str | None]] = queue.Queue()
         self.endpoints = [
             Endpoint(steam_port, self.events, KIND_STEAM, debug=_debug),
             Endpoint(vr_port, self.events, KIND_VR, debug=_debug),
         ]
-        self.sessions = {}
-        self.target_sessions = {}
+        self.sessions: dict[str, Session] = {}
+        self.target_sessions: dict[tuple[int, str], str] = {}
         self.steam_synced = False
         self.running = True
         self.fatal = False
 
     # -- endpoint lifecycle -------------------------------------------------
 
-    def _drop_endpoint_sessions(self, endpoint):
+    def _drop_endpoint_sessions(self, endpoint: Endpoint) -> None:
         for sid, session in list(self.sessions.items()):
             if session.endpoint is endpoint:
                 self._drop_session(sid)
         if endpoint.kind == KIND_STEAM:
             self.steam_synced = False
 
-    def _ensure_endpoint(self, endpoint, now):
+    def _ensure_endpoint(self, endpoint: Endpoint, now: float) -> None:
         if endpoint.alive:
             return
         self._drop_endpoint_sessions(endpoint)
@@ -637,7 +666,7 @@ class Daemon:
 
     # -- event loop ---------------------------------------------------------
 
-    def run(self):
+    def run(self) -> int:
         try:
             while self.running and not self.fatal:
                 now = time.time()
@@ -649,12 +678,17 @@ class Daemon:
                     break
                 time.sleep(LOOP_SECONDS)
         finally:
-            self.teardown_all()
+            # tear down injected js
+            for session in list(self.sessions.values()):
+                try:
+                    session.evaluate(JS_TEAR_DOWN_EXPR, timeout=2.0)
+                except Exception:
+                    pass
             for endpoint in self.endpoints:
                 endpoint.close()
         return 1 if self.fatal else 0
 
-    def _drain_events(self):
+    def _drain_events(self) -> None:
         for _ in range(200):
             try:
                 endpoint, method, params, session_id = self.events.get_nowait()
@@ -665,7 +699,13 @@ class Daemon:
             except Exception as e:
                 log("event %s failed: %s" % (method, e))
 
-    def _handle_event(self, endpoint, method, params, session_id):
+    def _handle_event(
+        self,
+        endpoint: Endpoint,
+        method: str,
+        params: dict[str, typing.Any],
+        session_id: str | None,
+    ) -> None:
         if method == "Target.targetCreated":
             info = params.get("targetInfo") or {}
             if is_page_target(info):
@@ -691,49 +731,57 @@ class Daemon:
 
     # -- target lifecycle ---------------------------------------------------
 
-    def _attach(self, endpoint, info):
+    def _attach(self, endpoint: Endpoint, info: dict[str, typing.Any]) -> None:
         target_id = info.get("targetId")
         if not target_id:
             return
         key = (endpoint.port, target_id)
         if key in self.target_sessions:
             return
-        session_id = None
+        session_id: str | None = None
         try:
-            result = endpoint.call("Target.attachToTarget", {
-                "targetId": target_id,
-                "flatten": True,
-            })
+            result = endpoint.call(
+                "Target.attachToTarget",
+                {
+                    "targetId": target_id,
+                    "flatten": True,
+                },
+            )
             session_id = result.get("sessionId")
             if not session_id:
                 return
             session = Session(
-                endpoint, session_id, target_id,
-                info.get("title") or "", info.get("url") or "")
+                endpoint,
+                session_id,
+                target_id,
+                info.get("title") or "",
+                info.get("url") or "",
+            )
             self.sessions[session_id] = session
             self.target_sessions[key] = session_id
             session.call("Runtime.enable")
             session.call("Page.enable")
             self._prepare_session(session)
-            _debug("attached target %s (%s) on :%d" % (
-                session.title, session.slots, endpoint.port))
+            _debug("attached target %s (%s) on :%d" % (session.title, session.slots, endpoint.port))
         except Exception as e:
-            log("attach failed on :%d target %s: %s" % (
-                endpoint.port, info.get("title"), e))
+            log("attach failed on :%d target %s: %s" % (endpoint.port, info.get("title"), e))
             if session_id:
                 try:
                     endpoint.call(
                         "Target.detachFromTarget",
-                        {"sessionId": session_id}, timeout=2.0)
+                        {"sessionId": session_id},
+                        timeout=2.0,
+                    )
                 except Exception:
                     pass
             self._drop_target(endpoint, target_id)
 
-    def _prepare_session(self, session):
+    def _prepare_session(self, session: Session) -> None:
         try:
             session.call(
                 "Page.addScriptToEvaluateOnNewDocument",
-                {"source": page_script(self.js_sources, session.slots)})
+                {"source": page_script(self.js_sources, session.slots)},
+            )
         except Exception as e:
             _debug("addScript failed on %s: %s" % (session.title, e))
         self._inject_current(session)
@@ -744,7 +792,7 @@ class Daemon:
         if self._can_read_flag(session) and not self.steam_synced:
             self._sync_from_steam()
 
-    def _refresh_target(self, endpoint, info):
+    def _refresh_target(self, endpoint: Endpoint, info: dict[str, typing.Any]) -> None:
         target_id = info.get("targetId")
         sid = self.target_sessions.get((endpoint.port, target_id))
         session = self.sessions.get(sid) if sid else None
@@ -763,12 +811,12 @@ class Daemon:
             except Exception as e:
                 _debug("ui upgrade failed: %s" % e)
 
-    def _drop_target(self, endpoint, target_id):
+    def _drop_target(self, endpoint: Endpoint, target_id: str) -> None:
         sid = self.target_sessions.pop((endpoint.port, target_id), None)
         if sid:
             self._drop_session(sid)
 
-    def _drop_session(self, session_id):
+    def _drop_session(self, session_id: str | None) -> None:
         if not session_id:
             return
         session = self.sessions.pop(session_id, None)
@@ -780,7 +828,7 @@ class Daemon:
 
     # -- injection ----------------------------------------------------------
 
-    def _inject_current(self, session):
+    def _inject_current(self, session: Session) -> None:
         for slot in session.slots:
             source = self.js_sources.get(slot)
             if source is None:
@@ -790,10 +838,9 @@ class Daemon:
             if current == marker:
                 continue
             session.evaluate(inject_expr(source, slot, marker), timeout=20.0)
-            _debug("inject -> %s [%s] build %s" % (
-                session.title, slot, marker))
+            _debug("inject -> %s [%s] build %s" % (session.title, slot, marker))
 
-    def _on_new_context(self, session):
+    def _on_new_context(self, session: Session) -> None:
         if session.is_ui:
             self._start_handshake(session)
             self._sync_from_steam()
@@ -808,33 +855,30 @@ class Daemon:
 
     # -- binding handshake --------------------------------------------------
 
-    def _start_handshake(self, session):
+    def _start_handshake(self, session: Session) -> None:
         session.handshake.start()
         self._send_handshake(session)
 
-    def _send_handshake(self, session):
+    def _send_handshake(self, session: Session) -> None:
         session.handshake.sent(time.time())
         try:
             session.call("Runtime.addBinding", {"name": BINDING})
-            session.evaluate(
-                "window.%s(JSON.stringify({c:'hello'}))" % BINDING)
-            _debug("handshake -> %s (attempt %d)" % (
-                session.title, session.handshake.attempts))
+            session.evaluate("window.%s(JSON.stringify({c:'hello'}))" % BINDING)
+            _debug("handshake -> %s (attempt %d)" % (session.title, session.handshake.attempts))
         except Exception as e:
             _debug("handshake send failed: %s" % e)
 
-    def _check_handshakes(self, now):
+    def _check_handshakes(self, now: float) -> None:
         for session in list(self.sessions.values()):
             if not session.is_ui or not session.handshake.due(now):
                 continue
             if session.handshake.exhausted():
-                log("binding handshake failed after %d attempts; restarting" %
-                    session.handshake.attempts)
+                log("binding handshake failed after %d attempts; restarting" % session.handshake.attempts)
                 self.fatal = True
                 return
             self._send_handshake(session)
 
-    def _on_binding(self, session_id, payload):
+    def _on_binding(self, session_id: str | None, payload: str) -> None:
         msg = parse_binding_payload(payload)
         if msg is None:
             return
@@ -850,11 +894,11 @@ class Daemon:
 
     # -- state --------------------------------------------------------------
 
-    def _can_read_flag(self, session):
+    def _can_read_flag(self, session: Session) -> bool:
         """A data: utility page has an opaque origin, not the shared storage."""
         return session.steam and not (session.url or "").startswith("data:")
 
-    def _choose_steam_session(self):
+    def _choose_steam_session(self) -> Session | None:
         # The QAM page is always the best place to read the flag.
         candidates = [s for s in self.sessions.values() if s.steam]
         for session in candidates:
@@ -865,7 +909,7 @@ class Daemon:
                 return session
         return None
 
-    def _read_steam_enabled(self):
+    def _read_steam_enabled(self) -> bool | None:
         session = self._choose_steam_session()
         if session is None:
             return None
@@ -876,7 +920,7 @@ class Daemon:
             _debug("read :8080 flag failed: %s" % e)
             return None
 
-    def _set_enabled(self, enabled):
+    def _set_enabled(self, enabled: bool) -> bool:
         if enabled == self.enabled:
             return False
         previous = self.enabled
@@ -889,7 +933,7 @@ class Daemon:
             return False
         return True
 
-    def _apply_enabled(self, enabled, source):
+    def _apply_enabled(self, enabled: bool, source: str) -> None:
         if self._set_enabled(enabled):
             if source == "switch":
                 log("switch -> %s" % storage_value(enabled))
@@ -898,13 +942,13 @@ class Daemon:
         self.steam_synced = self.enabled == enabled
         self._push_vr()
 
-    def _sync_from_steam(self):
+    def _sync_from_steam(self) -> None:
         enabled = self._read_steam_enabled()
         if enabled is None:
             return
         self._apply_enabled(enabled, "sync")
 
-    def _on_user_change(self):
+    def _on_user_change(self) -> None:
         enabled = self._read_steam_enabled()
         if enabled is None:
             # :8080 is the authority and could not be read. Keep the persisted
@@ -913,40 +957,29 @@ class Daemon:
             return
         self._apply_enabled(enabled, "switch")
 
-    def _push_vr(self):
+    def _push_vr(self) -> None:
         for session in list(self.sessions.values()):
             if session.vr:
                 self._push_session(session)
 
-    def _push_session(self, session):
+    def _push_session(self, session: Session) -> None:
         value = storage_value(self.enabled)
         try:
-            session.evaluate(
-                "localStorage.setItem(%s, %s)" % (
-                    json.dumps(KEY), json.dumps(value)))
+            session.evaluate("localStorage.setItem(%s, %s)" % (json.dumps(KEY), json.dumps(value)))
             _debug("push -> %s %s" % (session.title, value))
         except Exception as e:
             # A reload may have invalidated the context. Target events will
             # attach and push again; do not delete the session permanently.
             _debug("push to %s failed: %s" % (session.title, e))
 
-    # -- shutdown -----------------------------------------------------------
-
-    def teardown_all(self):
-        expr = teardown_expr()
-        for session in list(self.sessions.values()):
-            try:
-                session.evaluate(expr, timeout=2.0)
-            except Exception:
-                pass
-
 
 # --------------------------------------------------------------------------
 # status
 # --------------------------------------------------------------------------
 
-def status(state_file, steam_port, vr_port):
-    def summarize_targets(targets, kind):
+
+def status(state_file: str, steam_port: int, vr_port: int) -> int:
+    def summarize_targets(targets: typing.Any, kind: str) -> dict[str, typing.Any]:
         pages = 0
         ui = False
         for target in targets:
@@ -954,13 +987,17 @@ def status(state_file, steam_port, vr_port):
                 continue
             pages += 1
             # there is only one special ui page that we want to inject our switch
-            if (kind == KIND_STEAM and
-                is_ui_target(target.get("title"), target.get("url"))):
+            if kind == KIND_STEAM and is_ui_target(target.get("title"), target.get("url")):
                 ui = True
         return {"pages": pages, "ui": ui}
 
-    def endpoint(port, kind):
-        info = {"port": port, "reachable": False, "pages": 0, "ui": False}
+    def endpoint(port: int, kind: str) -> dict[str, typing.Any]:
+        info: dict[str, typing.Any] = {
+            "port": port,
+            "reachable": False,
+            "pages": 0,
+            "ui": False,
+        }
         try:
             targets = http_json("http://127.0.0.1:%d/json/list" % port)
         except Exception:
@@ -969,12 +1006,18 @@ def status(state_file, steam_port, vr_port):
         info.update(summarize_targets(targets, kind))
         return info
 
-    print(json.dumps({
-        "enabled": load_state(state_file),
-        "stateFile": state_file,
-        "steam": endpoint(steam_port, KIND_STEAM),
-        "vr": endpoint(vr_port, KIND_VR),
-    }, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {
+                "enabled": load_state(state_file),
+                "stateFile": state_file,
+                "steam": endpoint(steam_port, KIND_STEAM),
+                "vr": endpoint(vr_port, KIND_VR),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 0
 
 
@@ -982,26 +1025,40 @@ def status(state_file, steam_port, vr_port):
 # cli
 # --------------------------------------------------------------------------
 
-def parse_args(argv=None):
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     here = os.path.dirname(os.path.abspath(__file__))
     ap = argparse.ArgumentParser(description="sf-ui-haptic-switch daemon")
-    ap.add_argument("--steamwebhelper-port", dest="steamwebhelper_port",
-                    type=int, default=DEFAULT_STEAM_PORT,
-                    help="Steam client DevTools port (default %d)" % DEFAULT_STEAM_PORT)
-    ap.add_argument("--vrwebhelper-port", dest="vrwebhelper_port",
-                    type=int, default=DEFAULT_VR_PORT,
-                    help="SteamVR Dashboard DevTools port (default %d)" % DEFAULT_VR_PORT)
-    ap.add_argument("--script-dir", default=here,
-                    help="directory holding the two .js scripts (default: this file's dir)")
-    ap.add_argument("--state-file", default=None,
-                    help="state file (default: $XDG_STATE_HOME first, then ~/.local/state)")
-    ap.add_argument("--status", action="store_true",
-                    help="print the persisted value and endpoint status, then exit")
+    ap.add_argument(
+        "--steamwebhelper-port",
+        dest="steamwebhelper_port",
+        type=int,
+        default=DEFAULT_STEAM_PORT,
+        help="Steam client DevTools port (default %d)" % DEFAULT_STEAM_PORT,
+    )
+    ap.add_argument(
+        "--vrwebhelper-port",
+        dest="vrwebhelper_port",
+        type=int,
+        default=DEFAULT_VR_PORT,
+        help="SteamVR Dashboard DevTools port (default %d)" % DEFAULT_VR_PORT,
+    )
+    ap.add_argument(
+        "--script-dir",
+        default=here,
+        help="directory holding the two .js scripts (default: this file's dir)",
+    )
+    ap.add_argument(
+        "--state-file",
+        default=None,
+        help="state file (default: $XDG_STATE_HOME first, then ~/.local/state)",
+    )
+    ap.add_argument("--status", action="store_true", help="print the persisted value and endpoint status, then exit")
     ap.add_argument("--verbose", action="store_true")
     return ap.parse_args(argv)
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     global VERBOSE
     args = parse_args(argv)
     VERBOSE = args.verbose
@@ -1023,14 +1080,13 @@ def main(argv=None):
         state_file,
     )
 
-    def stop(*_args):
+    def stop(*_args: object) -> None:
         daemon.running = False
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
 
-    log("started; steam=:%d vr=:%d state=%s" % (
-        args.steamwebhelper_port, args.vrwebhelper_port, state_file))
+    log("started; steam=:%d vr=:%d state=%s" % (args.steamwebhelper_port, args.vrwebhelper_port, state_file))
     return daemon.run()
 
 
