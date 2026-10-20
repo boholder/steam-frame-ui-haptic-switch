@@ -16,7 +16,7 @@
 
 > 编号说明：本轮 grilling 的新决定记为 **D1–D8**；各改动项里原有的 `Q1 A`、`Q7 A` 等是上一轮审计的编号，保留不动，互不冲突。
 
-- **D1（原 Q1，第 8 项）**：`Endpoint.call` 超时后调用 `self.close()`，再抛 `WSError`。超时意味着对端不可信；让 `_ensure_endpoint` 重连优于保留一个“活着但永不响应”的 endpoint。
+- **D1（原 Q1，第 8 项）**：`Endpoint.call` 超时后调用 `self.close()`，再抛 `WSError`。超时意味着对端不可信；让 `_ensure_endpoint_connected` 重连优于保留一个“活着但永不响应”的 endpoint。
 - **D2（原 Q2，第 8 项）**：修 `WebSocket.close()` 的锁竞争。它当前先抢 `_send_lock` 发 close 帧；sender 若卡在 `sendall` 里持锁，`close()` 会一起卡死。改为非阻塞取锁：拿到就发 close 帧；拿不到就跳过，直接 `_closed = True` + `shutdown` + `close`。锁空闲时行为不变。
 - **D3（原 Q3 / Q9，第 5 项）**：克隆行的后代 id 一律**删除**，不生成新 id。抽 `stripIds(row)`，在 `toggleRow` 的 `applyToggleLook` 之后、以及 `render()` 替换 checkbox 之后调用。理由：仓库内没有代码依赖这些 id；生成新 id 还要重写 `aria-labelledby` 等引用，且 HTML fallback 每次替换都要重做，收益为零。
 - **D4（原 Q4，测试）**：JS / shell 用**限定作用域的静态契约**（正则在 `function flip` / `function teardown` 等函数体内匹配）；Python 用 fake 对象做行为测试。本机没有 node，只有 esprima（可解析、不能执行）。
@@ -254,7 +254,7 @@
   - 关闭 ws（shutdown 会唤醒阻塞的 `sendall`）；
   - join sender（和 reader 一样有超时）；
   - 现有 `_fail_pending` 保持。
-- 超时处理（D1）：`call` 等待响应超时后，先 `self.close()`，再抛 `WSError`。关闭会唤醒阻塞的 sender、失败所有 pending，并让 `_ensure_endpoint` 在下一轮重连。`_attach` / `teardown_all` 现有的异常处理不用改。
+- 超时处理（D1）：`call` 等待响应超时后，先 `self.close()`，再抛 `WSError`。关闭会唤醒阻塞的 sender、失败所有 pending，并让 `_ensure_endpoint_connected` 在下一轮重连。`_attach` / `teardown_all` 现有的异常处理不用改。
 - `WebSocket.close()`（D2）：sender 可能正卡在 `sendall` 里持有 `_send_lock`。当前 `close()` 会先抢锁发 close 帧，结果自己也卡死。改为非阻塞取锁：
   ```python
   locked = self._send_lock.acquire(blocking=False)

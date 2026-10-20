@@ -107,7 +107,7 @@ class ScriptContractTests(unittest.TestCase):
 
     def test_cdp_transport_lives_in_the_daemon(self):
         t = read(os.path.join(SRC, "sf_ui_haptic_switch_daemon.py"))
-        for symbol in ("class WSError", "class WebSocket", "def http_json", "class Endpoint"):
+        for symbol in ("class WSError", "class WebSocket", "def http_get_json", "class Endpoint"):
             self.assertIn(symbol, t)
         self.assertFalse(os.path.exists(os.path.join(SRC, "sf_ui_haptic_switch_cdp.py")))
 

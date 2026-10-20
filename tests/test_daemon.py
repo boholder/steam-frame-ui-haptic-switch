@@ -18,51 +18,51 @@ import sf_ui_haptic_switch_daemon as d
 class FlagTests(unittest.TestCase):
     def test_missing_or_junk_means_on(self):
         for value in (None, "", "junk", "true", "1", "yes"):
-            self.assertTrue(d.normalize_enabled(value), value)
+            self.assertTrue(d.storage_value_to_enabled(value), value)
 
     def test_explicit_off_values(self):
         for value in ("0", "false"):
-            self.assertFalse(d.normalize_enabled(value), value)
+            self.assertFalse(d.storage_value_to_enabled(value), value)
 
     def test_storage_value(self):
-        self.assertEqual(d.storage_value(True), "1")
-        self.assertEqual(d.storage_value(False), "0")
+        self.assertEqual(d.enabled_to_storage_value(True), "1")
+        self.assertEqual(d.enabled_to_storage_value(False), "0")
 
 
 class PayloadTests(unittest.TestCase):
     def test_hello(self):
-        self.assertEqual(d.parse_binding_payload('{"c":"hello"}'), {"kind": "hello"})
+        self.assertEqual(d.parse_binding_message('{"c":"hello"}'), {"kind": "hello"})
 
     def test_haptic_boolean(self):
-        self.assertEqual(d.parse_binding_payload('{"c":"haptic","v":false}'), {"kind": "haptic", "enabled": False})
-        self.assertEqual(d.parse_binding_payload('{"c":"haptic","v":true}'), {"kind": "haptic", "enabled": True})
+        self.assertEqual(d.parse_binding_message('{"c":"haptic","v":false}'), {"kind": "haptic", "enabled": False})
+        self.assertEqual(d.parse_binding_message('{"c":"haptic","v":true}'), {"kind": "haptic", "enabled": True})
 
     def test_haptic_without_value_is_a_hint_only(self):
-        self.assertEqual(d.parse_binding_payload('{"c":"haptic"}'), {"kind": "haptic", "enabled": None})
+        self.assertEqual(d.parse_binding_message('{"c":"haptic"}'), {"kind": "haptic", "enabled": None})
 
     def test_rejects_bad_or_unknown_payloads(self):
         for raw in ("", "not json", "[]", "null", '{"c":"other"}', '{"x":1}'):
-            self.assertIsNone(d.parse_binding_payload(raw), raw)
+            self.assertIsNone(d.parse_binding_message(raw), raw)
 
 
 class TargetTests(unittest.TestCase):
     def test_page_filter(self):
-        self.assertTrue(d.is_page_target({"type": "page"}))
-        self.assertFalse(d.is_page_target({"type": "other"}))
-        self.assertFalse(d.is_page_target({}))
+        self.assertTrue(d.is_page_target_info({"type": "page"}))
+        self.assertFalse(d.is_page_target_info({"type": "other"}))
+        self.assertFalse(d.is_page_target_info({}))
 
     def test_ui_target(self):
-        self.assertTrue(d.is_ui_target("SteamVR - valve.steam.gamepadui.barpopup.1", "about:blank"))
-        self.assertTrue(d.is_ui_target("", "about:blank?vrOverlayKey=valve.steam.gamepadui.barpopup.1"))
-        self.assertFalse(d.is_ui_target("SharedJSContext", "https://steamloopback.host"))
+        self.assertTrue(d.is_quick_access_menu_target("SteamVR - valve.steam.gamepadui.barpopup.1", "about:blank"))
+        self.assertTrue(d.is_quick_access_menu_target("", "about:blank?vrOverlayKey=valve.steam.gamepadui.barpopup.1"))
+        self.assertFalse(d.is_quick_access_menu_target("SharedJSContext", "https://steamloopback.host"))
 
     def test_scripts_for(self):
-        self.assertEqual(d.scripts_for("SteamVR - valve.steam.gamepadui.barpopup.1", "", d.KIND_STEAM), ["gate", "ui"])
-        self.assertEqual(d.scripts_for("systemui", "", d.KIND_STEAM), ["gate"])
+        self.assertEqual(d.script_slots_for_target("SteamVR - valve.steam.gamepadui.barpopup.1", "", d.KIND_STEAM), ["gate", "ui"])
+        self.assertEqual(d.script_slots_for_target("systemui", "", d.KIND_STEAM), ["gate"])
 
     def test_vr_never_gets_the_qam_ui(self):
-        self.assertEqual(d.scripts_for("valve.steam.gamepadui.barpopup", "", d.KIND_VR), ["gate"])
-        self.assertEqual(d.scripts_for("valve.steam.gamepadui.barpopup", "", d.KIND_STEAM), ["gate", "ui"])
+        self.assertEqual(d.script_slots_for_target("valve.steam.gamepadui.barpopup", "", d.KIND_VR), ["gate"])
+        self.assertEqual(d.script_slots_for_target("valve.steam.gamepadui.barpopup", "", d.KIND_STEAM), ["gate", "ui"])
 
 
 class FakeSocket:
@@ -151,7 +151,7 @@ class EndpointSenderTests(unittest.TestCase):
     def test_a_stuck_send_times_out_and_closes_the_endpoint(self):
         ws = FakeWS()
         with (
-            mock.patch.object(d, "http_json", return_value={"webSocketDebuggerUrl": "ws://127.0.0.1:1/devtools/browser/x"}),
+            mock.patch.object(d, "http_get_json", return_value={"webSocketDebuggerUrl": "ws://127.0.0.1:1/devtools/browser/x"}),
             mock.patch.object(d, "WebSocket", return_value=ws),
         ):
             endpoint = d.Endpoint(9999, queue.Queue(), d.KIND_STEAM)
@@ -160,7 +160,7 @@ class EndpointSenderTests(unittest.TestCase):
             ws.block = True
 
             with self.assertRaises(d.WSError):
-                endpoint.call("Runtime.evaluate", timeout=0.1)
+                endpoint.send_command("Runtime.evaluate", timeout=0.1)
 
             self.assertFalse(endpoint.alive)
             self.assertIsNone(endpoint.ws)
@@ -170,7 +170,7 @@ class EndpointSenderTests(unittest.TestCase):
         first = FakeWS()
         second = FakeWS()
         with (
-            mock.patch.object(d, "http_json", return_value={"webSocketDebuggerUrl": "ws://127.0.0.1:1/devtools/browser/x"}),
+            mock.patch.object(d, "http_get_json", return_value={"webSocketDebuggerUrl": "ws://127.0.0.1:1/devtools/browser/x"}),
             mock.patch.object(d, "WebSocket", side_effect=[first, second]),
         ):
             endpoint = d.Endpoint(9999, queue.Queue(), d.KIND_STEAM)
@@ -178,21 +178,21 @@ class EndpointSenderTests(unittest.TestCase):
             first.block = True
 
             with self.assertRaises(d.WSError):
-                endpoint.call("Runtime.evaluate", timeout=0.1)
+                endpoint.send_command("Runtime.evaluate", timeout=0.1)
             self.assertFalse(endpoint.alive)
 
             endpoint.connect()
-            self.assertEqual(endpoint.call("Runtime.evaluate", timeout=1.0), {})
+            self.assertEqual(endpoint.send_command("Runtime.evaluate", timeout=1.0), {})
             self.assertIsNotNone(endpoint.sender)
             self.assertTrue(endpoint.sender.is_alive())
 
 
 class CommandLogTests(unittest.TestCase):
     def test_short_command(self):
-        self.assertEqual(d.describe_command("Runtime.enable", {}), "command Runtime.enable {}")
+        self.assertEqual(d.describe_cdp_command("Runtime.enable", {}), "command Runtime.enable {}")
 
     def test_long_command_is_truncated(self):
-        text = d.describe_command("Runtime.evaluate", {"expression": "x" * 500})
+        text = d.describe_cdp_command("Runtime.evaluate", {"expression": "x" * 500})
         self.assertIn("Runtime.evaluate", text)
         self.assertLessEqual(len(text), 230)
         self.assertTrue(text.endswith("..."))
@@ -201,14 +201,14 @@ class CommandLogTests(unittest.TestCase):
 class HandshakeTests(unittest.TestCase):
     def test_three_retries_after_the_first_send(self):
         h = d.Handshake()
-        h.start()
+        h.restart()
         for expected in (False, False, False, True):
             h.sent(0)
             self.assertEqual(h.exhausted(), expected)
 
     def test_due_and_verified(self):
         h = d.Handshake()
-        h.start()
+        h.restart()
         self.assertFalse(h.due(0))
         h.sent(0)
         self.assertFalse(h.due(0))
@@ -221,7 +221,7 @@ class HandshakeTests(unittest.TestCase):
         self.assertIsNone(h.deadline)
         h.sent(100)
         h.ok = True
-        h.start()
+        h.restart()
         self.assertFalse(h.ok)
         self.assertEqual(h.attempts, 0)
         self.assertIsNone(h.deadline)
@@ -246,7 +246,7 @@ class AttachFailureTests(unittest.TestCase):
             self.calls = []
             self.fail_on = None
 
-        def call(self, method, params=None, session=None, timeout=10.0):
+        def send_command(self, method, params=None, session=None, timeout=10.0):
             self.calls.append((method, dict(params or {}), session))
             if method == self.fail_on:
                 raise d.WSError("boom")
@@ -266,7 +266,7 @@ class AttachFailureTests(unittest.TestCase):
                 "url": "",
             }
 
-            daemon._attach(endpoint, info)
+            daemon._attach_to_page_target(endpoint, info)
 
             methods = [c[0] for c in endpoint.calls]
             self.assertIn("Target.detachFromTarget", methods)
@@ -281,14 +281,14 @@ class StateWriteTests(unittest.TestCase):
         daemon = d.Daemon(8080, 8087, {"gate": "g", "ui": "u"}, os.path.join(tmp, "state.json"))
         daemon.enabled = enabled
         daemon.pushed = []
-        daemon._push_vr = lambda: daemon.pushed.append(daemon.enabled)
+        daemon._push_state_to_all_vr_sessions = lambda: daemon.pushed.append(daemon.enabled)
         return daemon
 
     def test_write_failure_reverts_and_marks_not_synced(self):
         with tempfile.TemporaryDirectory() as tmp:
             daemon = self._daemon(tmp, enabled=True)
-            with mock.patch.object(d, "save_state", side_effect=OSError("disk full")):
-                daemon._apply_enabled(False, "switch")
+            with mock.patch.object(d, "write_persisted_enabled", side_effect=OSError("disk full")):
+                daemon._apply_enabled_and_push_to_vr(False, "switch")
 
             self.assertTrue(daemon.enabled)
             self.assertFalse(daemon.steam_synced)
@@ -298,18 +298,18 @@ class StateWriteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             daemon = self._daemon(tmp, enabled=True)
 
-            daemon._apply_enabled(False, "switch")
+            daemon._apply_enabled_and_push_to_vr(False, "switch")
 
             self.assertFalse(daemon.enabled)
             self.assertTrue(daemon.steam_synced)
             self.assertEqual(daemon.pushed, [False])
-            self.assertFalse(d.load_state(daemon.state_file))
+            self.assertFalse(d.read_persisted_enabled(daemon.state_file))
 
     def test_unchanged_value_stays_synced(self):
         with tempfile.TemporaryDirectory() as tmp:
             daemon = self._daemon(tmp, enabled=False)
-            with mock.patch.object(d, "save_state", side_effect=OSError("should not write")):
-                daemon._apply_enabled(False, "sync")
+            with mock.patch.object(d, "write_persisted_enabled", side_effect=OSError("should not write")):
+                daemon._apply_enabled_and_push_to_vr(False, "sync")
 
             self.assertFalse(daemon.enabled)
             self.assertTrue(daemon.steam_synced)
@@ -325,8 +325,8 @@ class StatusTests(unittest.TestCase):
 
         output = io.StringIO()
         with (
-            mock.patch.object(d, "http_json", return_value=targets),
-            mock.patch.object(d, "load_state", return_value=True),
+            mock.patch.object(d, "http_get_json", return_value=targets),
+            mock.patch.object(d, "read_persisted_enabled", return_value=True),
             mock.patch("sys.stdout", output),
         ):
             result = d.status("unused-state.json", 8080, 8087)
@@ -346,17 +346,17 @@ class StatusTests(unittest.TestCase):
 
 class InjectionExprTests(unittest.TestCase):
     def test_marker_is_stable_and_short(self):
-        self.assertEqual(d.build_marker("x"), d.build_marker("x"))
-        self.assertNotEqual(d.build_marker("x"), d.build_marker("y"))
-        self.assertEqual(len(d.build_marker("x")), 12)
+        self.assertEqual(d.build_script_marker("x"), d.build_script_marker("x"))
+        self.assertNotEqual(d.build_script_marker("x"), d.build_script_marker("y"))
+        self.assertEqual(len(d.build_script_marker("x")), 12)
 
     def test_probe_reads_the_slot(self):
-        e = d.probe_expr("gate")
+        e = d.build_script_marker_probe("gate")
         self.assertIn(d.GLOBAL, e)
         self.assertIn('"gate"', e)
 
     def test_inject_stamps_the_slot(self):
-        e = d.inject_expr("doThing();", "ui", "deadbeef")
+        e = d.build_script_injection("doThing();", "ui", "deadbeef")
         self.assertTrue(e.startswith("doThing();"))
         self.assertIn('"ui"', e)
         self.assertIn('"deadbeef"', e)
@@ -376,13 +376,13 @@ class InjectionExprTests(unittest.TestCase):
 class StateFileTests(unittest.TestCase):
     def test_missing_file_defaults_to_on(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertTrue(d.load_state(os.path.join(tmp, "missing.json")))
+            self.assertTrue(d.read_persisted_enabled(os.path.join(tmp, "missing.json")))
 
     def test_round_trip(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "sub", "state.json")
-            d.save_state(path, False)
-            self.assertFalse(d.load_state(path))
+            d.write_persisted_enabled(path, False)
+            self.assertFalse(d.read_persisted_enabled(path))
             with open(path, encoding="utf-8") as f:
                 self.assertEqual(json.load(f), {"enabled": False})
             self.assertFalse([n for n in os.listdir(os.path.dirname(path)) if n.endswith(".tmp")])
@@ -392,13 +392,13 @@ class StateFileTests(unittest.TestCase):
             path = os.path.join(tmp, "state.json")
             with open(path, "w", encoding="utf-8") as f:
                 f.write("{not json")
-            self.assertTrue(d.load_state(path))
+            self.assertTrue(d.read_persisted_enabled(path))
 
     @unittest.skipIf(os.name == "nt", "POSIX mode bits")
     def test_file_is_private(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "state.json")
-            d.save_state(path, True)
+            d.write_persisted_enabled(path, True)
             self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
 
 
