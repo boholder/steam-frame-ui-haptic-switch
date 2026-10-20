@@ -83,10 +83,10 @@ class WebSocket:
         status = head.split(b"\r\n")[0]
         if b"101" not in status:
             raise WSError("handshake failed: %s" % status.decode("utf-8", "replace"))
-        self._buf = rest
-        self._frag = b""
-        self._send_lock = threading.Lock()
-        self._closed = False
+        self._buf = rest  # receive buffer; may already hold early frames
+        self._frag = b""  # fragments of the message being assembled
+        self._send_lock = threading.Lock()  # serializes frames onto the socket
+        self._closed = False  # set by close(); later sends refuse to run
         # The reader thread blocks on recv(); close() wakes it with shutdown().
         self.sock.settimeout(None)
 
@@ -103,8 +103,11 @@ class WebSocket:
         if self._closed:
             raise WSError("socket closed")
         header = bytearray()
+        # FIN is always set: outgoing frames are never fragmented.
         header.append(0x80 | opcode)
         n = len(payload)
+        # Length forms: 7-bit inline, or 126/127 for 16/64-bit; the 0x80 bit
+        # on the length byte marks client frames as masked.
         if n < 126:
             header.append(0x80 | n)
         elif n < (1 << 16):
@@ -141,6 +144,7 @@ class WebSocket:
             if mask:
                 payload = bytes(c ^ mask[i % 4] for i, c in enumerate(payload))
 
+            # Control frames: close ends the stream, ping gets a pong, pong is ignored.
             if opcode == 0x8:
                 raise WSError("server sent close")
             if opcode == 0x9:
@@ -148,6 +152,7 @@ class WebSocket:
                 continue
             if opcode == 0xA:
                 continue
+            # Data frames (text/binary/continuation) accumulate until FIN.
             if opcode in (0x0, 0x1, 0x2):
                 self._frag += payload
                 if fin:
@@ -210,12 +215,17 @@ class Endpoint:
         self.reader: threading.Thread | None = None
         self.sender: threading.Thread | None = None
         self.alive = False
+        # Backoff bookkeeping: ever_connected separates "never up yet" (Steam
+        # still starting) from "dropped and waiting to retry".
         self.ever_connected = False
         self.next_connect = 0.0
+        # Monotonic CDP request id; _pending is keyed by it.
         self._id = 0
         self._id_lock = threading.Lock()
+        # id -> (event, box): call() blocks on the event, the reader fills box.
         self._pending: dict[int, tuple[threading.Event, dict[str, typing.Any]]] = {}
         self._pending_lock = threading.Lock()
+        # Outgoing messages for the sender thread; it owns all socket writes.
         self._send_queue: queue.Queue[str | None] = queue.Queue()
 
     def connect(self) -> None:
@@ -267,6 +277,8 @@ class Endpoint:
             while self.alive and self.ws is ws:
                 text = ws.recv_text()
                 msg = json.loads(text)
+                # Replies carry an id and resolve a pending call(); anything
+                # else is an event for the main loop.
                 if "id" in msg:
                     with self._pending_lock:
                         item = self._pending.pop(msg.get("id"), None)
@@ -316,6 +328,7 @@ class Endpoint:
             mid = self._id
         ev = threading.Event()
         box: dict[str, typing.Any] = {}
+        # Register before sending so an immediate reply cannot miss the slot.
         with self._pending_lock:
             self._pending[mid] = (ev, box)
         msg: dict[str, typing.Any] = {"id": mid, "method": method, "params": params or {}}
@@ -356,6 +369,7 @@ class Endpoint:
 
     def close(self) -> None:
         self.alive = False
+        # None is the sentinel that ends the sender loop.
         self._send_queue.put(None)
         self._fail_pending(WSError("closed"))
         if self.ws is not None:
@@ -403,6 +417,7 @@ HANDSHAKE_RETRIES = 3
 HANDSHAKE_MAX_SENDS = 1 + HANDSHAKE_RETRIES
 LOOP_SECONDS = 0.05
 
+# Runs in the page on shutdown: let each script unhook, then delete the global.
 JS_TEAR_DOWN_EXPR = (
     "(function(){var n=window.%s;if(!n)return;"
     "try{if(n.ui&&n.ui.teardown)n.ui.teardown();}catch(e){}"
@@ -482,6 +497,7 @@ def scripts_for(title: str, url: str, kind: str) -> list[str]:
 
 
 def build_marker(source: str) -> str:
+    # Short content hash; pages report it so unchanged builds are not reinjected.
     return hashlib.sha1(source.encode("utf-8")).hexdigest()[:12]
 
 
@@ -490,6 +506,8 @@ def probe_expr(slot: str) -> str:
 
 
 def inject_expr(source: str, slot: str, marker: str) -> str:
+    # The appended epilogue records the marker in window[GLOBAL].build[slot],
+    # which is exactly what probe_expr() reads back.
     epilogue = ";try{window.%s=window.%s||{};window.%s.build=window.%s.build||{};window.%s.build[%s]=%s;}catch(e){}" % (
         GLOBAL,
         GLOBAL,
@@ -504,6 +522,7 @@ def inject_expr(source: str, slot: str, marker: str) -> str:
 
 def page_script(sources: dict[str, str], slots: list[str]) -> str:
     """Script registered with Page.addScriptToEvaluateOnNewDocument."""
+    # The ";" guards concatenation if a script file omits its trailing semicolon.
     return "\n;\n".join(inject_expr(sources[slot], slot, build_marker(sources[slot])) for slot in slots)
 
 
@@ -563,6 +582,8 @@ class Handshake:
         self._reset()
 
     def _reset(self) -> None:
+        # ok: the page answered; attempts: sends so far; deadline: when the
+        # next retry is due (None until the first send).
         self.ok = False
         self.attempts = 0
         self.deadline: float | None = None
@@ -588,6 +609,7 @@ class Session:
         self.target_id = target_id
         self.title = title
         self.url = url
+        # Script slots for this page; is_ui caches the QAM check.
         self.slots = scripts_for(title, url, endpoint.kind)
         self.is_ui = SLOT_UI in self.slots
         self.handshake = Handshake()
@@ -621,17 +643,22 @@ class Daemon:
         state_file: str,
     ) -> None:
         self.js_sources = js_sources
+        # Content marker per slot, so pages can report which build they run.
         self.markers = {slot: build_marker(src) for slot, src in js_sources.items()}
         self.state_file = state_file
         self.enabled = load_state(state_file)
+        # Reader threads push (endpoint, method, params, session_id) here.
         self.events: queue.Queue[tuple[Endpoint, str, dict[str, typing.Any], str | None]] = queue.Queue()
         self.endpoints = [
             Endpoint(steam_port, self.events, KIND_STEAM, debug=_debug),
             Endpoint(vr_port, self.events, KIND_VR, debug=_debug),
         ]
+        # session_id -> Session, and (port, targetId) -> session_id for dedupe.
         self.sessions: dict[str, Session] = {}
         self.target_sessions: dict[tuple[int, str], str] = {}
+        # True only when the persisted value matches what :8080 reported last.
         self.steam_synced = False
+        # running: cleared by the SIGTERM/SIGINT handler; fatal: restart us.
         self.running = True
         self.fatal = False
 
@@ -720,6 +747,8 @@ class Daemon:
         elif method == "Runtime.executionContextCreated":
             context = params.get("context") or {}
             aux = context.get("auxData") or {}
+            # Isolated worlds (extensions) have their own context; only the
+            # page's default context matters here.
             if aux.get("isDefault") is False:
                 return
             session = self.sessions.get(session_id)
@@ -740,6 +769,7 @@ class Daemon:
             return
         session_id: str | None = None
         try:
+            # flatten:true multiplexes every target session over the browser socket.
             result = endpoint.call(
                 "Target.attachToTarget",
                 {
@@ -759,6 +789,7 @@ class Daemon:
             )
             self.sessions[session_id] = session
             self.target_sessions[key] = session_id
+            # Runtime.enable delivers bindingCalled and executionContextCreated.
             session.call("Runtime.enable")
             session.call("Page.enable")
             self._prepare_session(session)
@@ -777,6 +808,7 @@ class Daemon:
             self._drop_target(endpoint, target_id)
 
     def _prepare_session(self, session: Session) -> None:
+        # Register for future documents first, then inject into the live one.
         try:
             session.call(
                 "Page.addScriptToEvaluateOnNewDocument",
@@ -803,6 +835,7 @@ class Daemon:
         session.title = info.get("title") or session.title
         session.url = info.get("url") or session.url
         slots = scripts_for(session.title, session.url, endpoint.kind)
+        # A page can navigate into the QAM after attach; upgrade it in place.
         if SLOT_UI in slots and not session.is_ui:
             session.is_ui = True
             session.slots = slots
@@ -835,6 +868,7 @@ class Daemon:
                 continue
             marker = self.markers[slot]
             current = session.evaluate(probe_expr(slot))
+            # Same marker: the page already runs this exact build.
             if current == marker:
                 continue
             session.evaluate(inject_expr(source, slot, marker), timeout=20.0)
@@ -873,6 +907,7 @@ class Daemon:
             if not session.is_ui or not session.handshake.due(now):
                 continue
             if session.handshake.exhausted():
+                # Exit non-zero on purpose: the service manager restarts us.
                 log("binding handshake failed after %d attempts; restarting" % session.handshake.attempts)
                 self.fatal = True
                 return
@@ -884,6 +919,7 @@ class Daemon:
             return
         session = self.sessions.get(session_id)
         if msg["kind"] == "hello":
+            # hello is the injected script confirming that the binding works.
             if session is not None and not session.handshake.ok:
                 session.handshake.ok = True
                 log("binding verified on %s" % session.title)
@@ -904,6 +940,7 @@ class Daemon:
         for session in candidates:
             if session.is_ui and self._can_read_flag(session):
                 return session
+        # Fall back to any client page that shares the storage.
         for session in candidates:
             if self._can_read_flag(session):
                 return session
@@ -939,6 +976,7 @@ class Daemon:
                 log("switch -> %s" % storage_value(enabled))
             else:
                 _debug("state <- :8080 %s" % storage_value(enabled))
+        # Synced only when the write stuck and the QAM agrees with us.
         self.steam_synced = self.enabled == enabled
         self._push_vr()
 
