@@ -29,14 +29,11 @@ class UnitFileTests(unittest.TestCase):
         self.assertNotIn("StartLimit", service)
 
     def test_timer_is_gone(self):
-        self.assertFalse(os.path.exists(
-            os.path.join(SRC, "sf-ui-haptic-switch.timer")))
+        self.assertFalse(os.path.exists(os.path.join(SRC, "sf-ui-haptic-switch.timer")))
 
     def test_old_injector_is_gone(self):
-        self.assertFalse(os.path.exists(
-            os.path.join(SRC, "sf_ui_haptic_switch_inject.py")))
-        self.assertFalse(os.path.exists(
-            os.path.join(HERE, "test_inject.py")))
+        self.assertFalse(os.path.exists(os.path.join(SRC, "sf_ui_haptic_switch_inject.py")))
+        self.assertFalse(os.path.exists(os.path.join(HERE, "test_inject.py")))
 
     def test_old_daemon_unit_is_gone(self):
         self.assertFalse(os.path.exists(os.path.join(SRC, "sf-haptic-switchd.service")))
@@ -82,13 +79,9 @@ class ScriptContractTests(unittest.TestCase):
         t = read(os.path.join(ROOT, "uninstall.sh"))
         self.assertIn('systemctl is-active --quiet "$SERVICE"', t)
         self.assertIn('die "$SERVICE is still running', t)
-        self.assertLess(
-            t.index('systemctl is-active --quiet "$SERVICE"'),
-            t.index('rm -f "$UNIT_DIR/$SERVICE"'))
+        self.assertLess(t.index('systemctl is-active --quiet "$SERVICE"'), t.index('rm -f "$UNIT_DIR/$SERVICE"'))
         self.assertIn("pgrep -f '[v]rserver'", t)
-        self.assertLess(
-            t.index("pgrep -f '[v]rserver'"),
-            t.index('--disable'))
+        self.assertLess(t.index("pgrep -f '[v]rserver'"), t.index("--disable"))
 
     def test_uninstall_does_not_delete_the_checkout(self):
         t = read(os.path.join(ROOT, "uninstall.sh"))
@@ -114,11 +107,9 @@ class ScriptContractTests(unittest.TestCase):
 
     def test_cdp_transport_lives_in_the_daemon(self):
         t = read(os.path.join(SRC, "sf_ui_haptic_switch_daemon.py"))
-        for symbol in ("class WSError", "class WebSocket",
-                       "def http_json", "class Endpoint"):
+        for symbol in ("class WSError", "class WebSocket", "def http_json", "class Endpoint"):
             self.assertIn(symbol, t)
-        self.assertFalse(os.path.exists(
-            os.path.join(SRC, "sf_ui_haptic_switch_cdp.py")))
+        self.assertFalse(os.path.exists(os.path.join(SRC, "sf_ui_haptic_switch_cdp.py")))
 
 
 if __name__ == "__main__":

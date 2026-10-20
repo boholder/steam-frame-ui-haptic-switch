@@ -72,6 +72,7 @@ def enable(path):
     if st is None:
         try:
             import pwd
+
             ent = pwd.getpwnam(CONFIG_OWNER)
             if created_dir:
                 os.chown(created_dir, ent.pw_uid, ent.pw_gid)

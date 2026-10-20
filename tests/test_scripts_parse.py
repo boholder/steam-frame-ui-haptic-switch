@@ -36,7 +36,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn("EFFECT_BUTTON_ENTER", t)
         self.assertIn("EFFECT_BUTTON_LEAVE", t)
         self.assertIn("sf_ui_haptic_switch", t)  # localStorage key
-        self.assertNotIn("setItem", t)           # gate only reads the flag
+        self.assertNotIn("setItem", t)  # gate only reads the flag
 
     def test_gate_wraps_the_vrhtml_bridge(self):
         t = read(GATE)
@@ -115,8 +115,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn("querySelectorAll('[id]')", t)
         self.assertIn("removeAttribute('id')", t)
         for name in ("toggleRow", "render"):
-            m = re.search(
-                r"function %s\([^)]*\) \{(.*?)\n  \}" % name, t, re.S)
+            m = re.search(r"function %s\([^)]*\) \{(.*?)\n  \}" % name, t, re.S)
             self.assertIsNotNone(m, name)
             self.assertIn("stripIds(row)", m.group(1), name)
 
@@ -131,17 +130,13 @@ class ContractTests(unittest.TestCase):
         m = re.search(r"function flip\(ev\) \{(.*?)\n    \}", t, re.S)
         self.assertIsNotNone(m)
         body = m.group(1)
-        pointer = re.search(
-            r"if \(ev\.type === 'pointerdown'\) \{(.*?)\}", body, re.S)
+        pointer = re.search(r"if \(ev\.type === 'pointerdown'\) \{(.*?)\}", body, re.S)
         self.assertIsNotNone(pointer)
         self.assertNotIn("preventDefault", pointer.group(1))
-        prevent = body.index(
-            "if (ev.type !== 'pointerdown' && ev.preventDefault) "
-            "ev.preventDefault();")
+        prevent = body.index("if (ev.type !== 'pointerdown' && ev.preventDefault) ev.preventDefault();")
         self.assertLess(body.index("ev.button !== 0"), prevent)
         self.assertLess(prevent, body.index("lastFlip < 250"))
-        self.assertGreater(
-            body.index("sawDown = now"), body.index("lastFlip < 250"))
+        self.assertGreater(body.index("sawDown = now"), body.index("lastFlip < 250"))
 
     def test_gate_stops_after_teardown(self):
         t = read(GATE)
@@ -150,8 +145,7 @@ class ContractTests(unittest.TestCase):
         m = re.search(r"function teardown\(\) \{(.*?)\n  \}", t, re.S)
         self.assertIsNotNone(m)
         body = m.group(1)
-        self.assertLess(
-            body.index("stopped = true;"), body.index("clearInterval(timer)"))
+        self.assertLess(body.index("stopped = true;"), body.index("clearInterval(timer)"))
 
     def test_gate_never_uses_the_binding(self):
         self.assertNotIn("__sfHapticSend", read(GATE))

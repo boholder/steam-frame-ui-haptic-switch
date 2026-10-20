@@ -6,8 +6,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 
-import sf_ui_haptic_switch_settings as s  # noqa: E402
-
+import sf_ui_haptic_switch_settings as s
 
 SAMPLE = {
     "GpuSpeed": {"gpuSpeed0": 1},
@@ -68,7 +67,7 @@ class EnableTests(unittest.TestCase):
             path = os.path.join(tmp, "steamvr.vrsettings")
             with open(path, "w", encoding="utf-8") as f:
                 f.write("{not json")
-            with self.assertRaises(Exception):
+            with self.assertRaises(json.JSONDecodeError):
                 s.enable(path)
             self.assertTrue(os.path.exists(path + ".bak"))
 
@@ -97,8 +96,7 @@ class DisableTests(unittest.TestCase):
 
     def test_leaves_the_file_untouched_when_the_key_is_absent(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = write(os.path.join(tmp, "steamvr.vrsettings"),
-                         {"GpuSpeed": {"gpuSpeed0": 1}})
+            path = write(os.path.join(tmp, "steamvr.vrsettings"), {"GpuSpeed": {"gpuSpeed0": 1}})
             with open(path, encoding="utf-8") as f:
                 before = f.read()
             s.disable(path)

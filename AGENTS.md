@@ -15,6 +15,8 @@ A Steam Frame plugin that adds a switch at the end of Quick Access Menu → Quic
 - All checks: `bash scripts/check.sh`
 - Full unit suite: `python -m unittest discover -s tests`
 - One test file: `python -m unittest tests.test_daemon -v`
+- Ruff lint + format (whole repo, via uv): `uvx ruff@0.17.1 check --fix . && uvx ruff@0.17.1 format --check .`
+- Shellcheck: `shellcheck install.sh uninstall.sh installation_lib.sh scripts/check.sh scripts/probe-device.sh`
 - Shell syntax: `bash -n install.sh && bash -n uninstall.sh && bash -n installation_lib.sh`
 
 ## Device

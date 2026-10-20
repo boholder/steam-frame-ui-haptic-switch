@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Shared constants and output helpers for install.sh / uninstall.sh.
 # Sourced, not executed.
+# The constants below are read by the sourcing scripts.
+# shellcheck disable=SC2034
 
 # The caller (install.sh / uninstall.sh) sets HERE to the checkout path.
 : "${HERE:?HERE must be set before sourcing installation_lib.sh}"
