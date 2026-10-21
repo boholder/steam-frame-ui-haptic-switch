@@ -47,9 +47,9 @@ class PayloadTests(unittest.TestCase):
 
 class TargetTests(unittest.TestCase):
     def test_page_filter(self):
-        self.assertTrue(d.is_page_target_info({"type": "page"}))
-        self.assertFalse(d.is_page_target_info({"type": "other"}))
-        self.assertFalse(d.is_page_target_info({}))
+        self.assertTrue(d.is_page_type_target({"type": "page"}))
+        self.assertFalse(d.is_page_type_target({"type": "other"}))
+        self.assertFalse(d.is_page_type_target({}))
 
     def test_ui_target(self):
         self.assertTrue(d.is_quick_access_menu_target("SteamVR - valve.steam.gamepadui.barpopup.1", "about:blank"))

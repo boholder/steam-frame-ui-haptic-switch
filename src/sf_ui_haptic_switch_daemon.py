@@ -199,7 +199,18 @@ def describe_cdp_command(method: str, params: dict[str, typing.Any] | None = Non
 
 
 class Endpoint:
-    """One browser-level CDP connection plus its reader and sender threads."""
+    """One browser-level CDP connection and its transport resources.
+
+    Owns the WebSocket, the reader/sender threads, the request id and pending
+    table that turn replies into blocking ``send_command()`` results, the
+    outgoing send queue, and the reconnect timestamp.
+
+    It forwards methods, params and session ids between ``Daemon`` and browsers,
+    and pushes raw ``(endpoint, method, params, sessionId)`` events to the shared queue.
+
+    It knows nothing about pages, scripts or the switch value; that is the
+    ``Daemon``'s job.
+    """
 
     def __init__(
         self,
@@ -499,7 +510,7 @@ def parse_binding_message(payload: str) -> dict[str, typing.Any] | None:
     return {"kind": "haptic", "enabled": None}
 
 
-def is_page_target_info(info: object) -> bool:
+def is_page_type_target(info: object) -> bool:
     return isinstance(info, dict) and info.get("type") == "page"
 
 
@@ -626,6 +637,18 @@ class Handshake:
 
 
 class Session:
+    """One attached page target on one endpoint, a pure data object.
+
+    Holds the CDP ``sessionId`` and ``targetId`` that identify the page, its
+    latest title/url, the script slots it should receive, and its handshake
+    progress.
+
+    ``send_command()`` and ``evaluate()`` are thin facades that add
+    ``sessionId`` to the endpoint's calls.
+
+    Registered and torn down by ``Daemon``.
+    """
+
     def __init__(self, endpoint: Endpoint, session_id: str, target_id: str, title: str, url: str) -> None:
         self.endpoint = endpoint
         self.session_id = session_id
@@ -658,6 +681,22 @@ class Session:
 
 
 class Daemon:
+    """Policy and orchestration for the switch across both endpoints.
+
+    Owns the injected script sources and content markers, the persisted and
+    in-memory switch value, the shared CDP event queue, the two ``Endpoint``
+    instances, and the session registries (``session_id -> Session`` and
+    ``(port, targetId) -> session_id``).
+
+    It decides which targets to attach, injects scripts, runs the binding handshake,
+    syncs and pushes the switch value, reconnects dead endpoints,
+    and tears everything down on exit.
+
+    Sessions are registered here rather than on ``Endpoint``: events are
+    consumed single-threaded by the main loop, and attach/inject/push
+    decisions need the whole session set across both endpoints.
+    """
+
     def __init__(
         self,
         steam_port: int,
@@ -676,8 +715,12 @@ class Daemon:
             Endpoint(steam_port, self.events, KIND_STEAM, debug=_debug),
             Endpoint(vr_port, self.events, KIND_VR, debug=_debug),
         ]
-        # session_id -> Session, and (port, targetId) -> session_id for dedupe.
+        # session_id -> Session
+        # A session is one attached page target on one endpoint: several pages
+        # share a single browser WebSocket, each with its own CDP session id.
         self.sessions: dict[str, Session] = {}
+        # reverse index (endpoint port, CDP targetId) -> session_id
+        # For ensuring one target is attached at most once per endpoint.
         self.target_sessions: dict[tuple[int, str], str] = {}
         # True only when the persisted value matches what :8080 reported last.
         self.steam_synced = False
@@ -697,7 +740,7 @@ class Daemon:
     def _ensure_endpoint_connected(self, endpoint: Endpoint, now: float) -> None:
         if endpoint.alive:
             return
-        # Remove (daemon) held references of the sessions that endpoint owned.
+        # Remove (daemon) held references of the sessions that related to this endpoint.
         self._drop_sessions_of_endpoint(endpoint)
         # An established connection that just dropped waits RETRY_SECONDS before
         # trying again; an endpoint that never came up retries immediately.
@@ -758,7 +801,7 @@ class Daemon:
     ) -> None:
         if method == "Target.targetCreated":
             info = params.get("targetInfo") or {}
-            if is_page_target_info(info):
+            if is_page_type_target(info):
                 self._attach_to_page_target(endpoint, info)
         elif method == "Target.targetInfoChanged":
             info = params.get("targetInfo") or {}
@@ -788,15 +831,18 @@ class Daemon:
         if not target_id:
             return
         key = (endpoint.port, target_id)
+        # already attached, skip
         if key in self.target_sessions:
             return
+
         session_id: str | None = None
         try:
-            # flatten:true multiplexes every target session over the browser socket.
             result = endpoint.send_command(
                 "Target.attachToTarget",
                 {
                     "targetId": target_id,
+                    # flatten: true multiplexes every target session
+                    # over single browser socket.
                     "flatten": True,
                 },
             )
@@ -852,7 +898,7 @@ class Daemon:
         sid = self.target_sessions.get((endpoint.port, target_id))
         session = self.sessions.get(sid) if sid else None
         if session is None:
-            if is_page_target_info(info):
+            if is_page_type_target(info):
                 self._attach_to_page_target(endpoint, info)
             return
         session.title = info.get("title") or session.title
@@ -1047,7 +1093,7 @@ def status(state_file: str, steam_port: int, vr_port: int) -> int:
         pages = 0
         ui = False
         for target in targets:
-            if not is_page_target_info(target):
+            if not is_page_type_target(target):
                 continue
             pages += 1
             # there is only one special ui page that we want to inject our switch
