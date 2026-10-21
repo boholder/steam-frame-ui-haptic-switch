@@ -442,6 +442,62 @@ class InjectionExprTests(unittest.TestCase):
         self.assertGreaterEqual(e.count("catch(e)"), 3)
 
 
+class RecordingSession:
+    def __init__(self, script_names, probe_values):
+        self.script_names = script_names
+        self.title = "page"
+        self.probe_values = probe_values
+        self.evaluations = []
+
+    def evaluate(self, expr, timeout=10.0):
+        self.evaluations.append((expr, timeout))
+        return self.probe_values.get(expr)
+
+
+class PrecomputedScriptTests(unittest.TestCase):
+    def _daemon(self, tmp):
+        sources = {d.SCRIPT_GATE: "gate();", d.SCRIPT_UI: "ui();"}
+        return d.Daemon(8080, 8087, sources, os.path.join(tmp, "state.json"))
+
+    def test_precomputed_strings_match_the_pure_builders(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp)
+            for name in (d.SCRIPT_GATE, d.SCRIPT_UI):
+                self.assertEqual(daemon.marker_probes[name], d.build_script_marker_probe(name))
+                self.assertEqual(
+                    daemon.injections[name],
+                    d.build_script_injection(daemon.js_sources[name], name, daemon.markers[name]),
+                )
+
+    def test_new_document_script_joins_precomputed_injections_in_order(self):
+        injections = {d.SCRIPT_GATE: "gate();", d.SCRIPT_UI: "ui();"}
+        joined = d.build_new_document_script(injections, [d.SCRIPT_UI, "unknown", d.SCRIPT_GATE])
+        self.assertEqual(joined, "ui();\n;\ngate();")
+
+    def test_inject_skips_a_page_that_already_runs_the_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp)
+            probe = daemon.marker_probes[d.SCRIPT_GATE]
+            session = RecordingSession([d.SCRIPT_GATE], {probe: daemon.markers[d.SCRIPT_GATE]})
+
+            daemon._inject_into_current_document(session)
+
+            self.assertEqual(session.evaluations, [(probe, 10.0)])
+
+    def test_inject_sends_the_precomputed_script(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp)
+            probe = daemon.marker_probes[d.SCRIPT_GATE]
+            session = RecordingSession([d.SCRIPT_GATE], {probe: ""})
+
+            daemon._inject_into_current_document(session)
+
+            self.assertEqual(
+                session.evaluations,
+                [(probe, 10.0), (daemon.injections[d.SCRIPT_GATE], 20.0)],
+            )
+
+
 class StateFileTests(unittest.TestCase):
     def test_missing_file_defaults_to_on(self):
         with tempfile.TemporaryDirectory() as tmp:

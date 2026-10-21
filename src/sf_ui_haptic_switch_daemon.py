@@ -539,8 +539,8 @@ def build_script_marker_probe(script: str) -> str:
     return "((window.%s && window.%s.build && window.%s.build[%s]) || '')" % (GLOBAL, GLOBAL, GLOBAL, json.dumps(script))
 
 
-def build_script_injection(source: str, script: str, marker: str) -> str:
-    # The appended epilogue records the marker in window[GLOBAL].build[script],
+def build_script_injection(source: str, name: str, marker: str) -> str:
+    # The appended epilogue records the marker in window[GLOBAL].build[name],
     # which is exactly what build_script_marker_probe() reads back.
     epilogue = ";try{window.%s=window.%s||{};window.%s.build=window.%s.build||{};window.%s.build[%s]=%s;}catch(e){}" % (
         GLOBAL,
@@ -548,16 +548,17 @@ def build_script_injection(source: str, script: str, marker: str) -> str:
         GLOBAL,
         GLOBAL,
         GLOBAL,
-        json.dumps(script),
+        json.dumps(name),
         json.dumps(marker),
     )
     return source + epilogue
 
 
-def build_new_document_script(sources: dict[str, str], script_names: list[str]) -> str:
-    """Script registered with Page.addScriptToEvaluateOnNewDocument."""
-    # The ";" guards concatenation if a script file omits its trailing semicolon.
-    return "\n;\n".join(build_script_injection(sources[script], script, build_script_marker(sources[script])) for script in script_names)
+def build_new_document_script(script_injections: dict[str, str], script_names: list[str]) -> str:
+    """Join the precomputed injections for a page, in the given order."""
+    # The ";" guards concatenation if an injected script omits its trailing semicolon.
+    parts = (script_injections[name] for name in script_names if name in script_injections)
+    return "\n;\n".join(parts)
 
 
 def default_state_file_path() -> str:
@@ -655,8 +656,9 @@ class Session:
         self.target_id = target_id
         self.title = title
         self.url = url
-        # Injected script names for this page; is_ui caches the QAM check.
+        # Selected scripts that should be injected into this page
         self.script_names = script_names_for_target(title, url, endpoint.kind)
+        # is_ui caches the QAM check.
         self.is_ui = SCRIPT_UI in self.script_names
         self.handshake = Handshake()
 
@@ -707,6 +709,9 @@ class Daemon:
         self.js_sources = js_sources
         # Content marker per script, so pages can report which build they run.
         self.markers = {script: build_script_marker(src) for script, src in js_sources.items()}
+        # Only two scripts, so precompute the strings every page reuses.
+        self.marker_probes = {name: build_script_marker_probe(name) for name in js_sources}
+        self.injections = {name: build_script_injection(src, name, self.markers[name]) for name, src in js_sources.items()}
         self.state_file = state_file
         self.enabled = read_persisted_enabled(state_file)
         # Reader threads push (endpoint, method, params, session_id) here.
@@ -885,7 +890,7 @@ class Daemon:
         try:
             session.send_command(
                 "Page.addScriptToEvaluateOnNewDocument",
-                {"source": build_new_document_script(self.js_sources, session.script_names)},
+                {"source": build_new_document_script(self.injections, session.script_names)},
             )
         except Exception as e:
             _debug("addScript failed on %s: %s" % (session.title, e))
@@ -935,17 +940,17 @@ class Daemon:
     # -- injection ----------------------------------------------------------
 
     def _inject_into_current_document(self, session: Session) -> None:
-        for script in session.script_names:
-            source = self.js_sources.get(script)
-            if source is None:
+        for name in session.script_names:
+            injection = self.injections.get(name)
+            if injection is None:
                 continue
-            marker = self.markers[script]
-            current = session.evaluate(build_script_marker_probe(script))
+            marker = self.markers[name]
+            current = session.evaluate(self.marker_probes[name])
             # Same marker: the page already runs this exact build.
             if current == marker:
                 continue
-            session.evaluate(build_script_injection(source, script, marker), timeout=20.0)
-            _debug("inject -> %s [%s] build %s" % (session.title, script, marker))
+            session.evaluate(injection, timeout=20.0)
+            _debug("inject -> %s [%s] build %s" % (session.title, name, marker))
 
     def _on_execution_context_created(self, session: Session) -> None:
         if session.is_ui:
