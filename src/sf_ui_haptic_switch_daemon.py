@@ -128,7 +128,8 @@ class WebSocket:
     def send_text(self, text: str) -> None:
         self._send_frame(text.encode("utf-8"), 0x1)
 
-    def recv_text(self) -> str | None:
+    # noinspection bad-return
+    def recv_text(self) -> str:
         while True:
             b1, b2 = self._read_exactly(2)
             fin = b1 & 0x80
@@ -696,7 +697,7 @@ class Daemon:
     def _ensure_endpoint_connected(self, endpoint: Endpoint, now: float) -> None:
         if endpoint.alive:
             return
-        # The connection died: drop the sessions it owned.
+        # Remove (daemon) held references of the sessions that endpoint owned.
         self._drop_sessions_of_endpoint(endpoint)
         # An established connection that just dropped waits RETRY_SECONDS before
         # trying again; an endpoint that never came up retries immediately.
@@ -739,6 +740,7 @@ class Daemon:
     def _process_queued_events(self) -> None:
         for _ in range(200):
             try:
+                # Endpoint._reader_loop() will put session_id in event
                 endpoint, method, params, session_id = self.events.get_nowait()
             except queue.Empty:
                 return
@@ -762,9 +764,9 @@ class Daemon:
             info = params.get("targetInfo") or {}
             self._on_target_info_changed(endpoint, info)
         elif method == "Target.targetDestroyed":
-            self._drop_target(endpoint, params.get("targetId"))
+            self._drop_target(endpoint, params.get("targetId") or "")
         elif method == "Target.detachedFromTarget":
-            self._drop_session(params.get("sessionId"))
+            self._drop_session(params.get("sessionId") or "")
         elif method == "Runtime.executionContextCreated":
             context = params.get("context") or {}
             aux = context.get("auxData") or {}
@@ -772,17 +774,17 @@ class Daemon:
             # page's default context matters here.
             if aux.get("isDefault") is False:
                 return
-            session = self.sessions.get(session_id)
+            session = self.sessions.get(session_id or "")
             if session is not None:
                 self._on_execution_context_created(session)
         elif method == "Runtime.bindingCalled":
             if params.get("name") == BINDING:
-                self._on_binding_called(session_id, params.get("payload") or "")
+                self._on_binding_called(session_id or "", params.get("payload") or "")
 
     # -- target lifecycle ---------------------------------------------------
 
     def _attach_to_page_target(self, endpoint: Endpoint, info: dict[str, typing.Any]) -> None:
-        target_id = info.get("targetId")
+        target_id: str = info.get("targetId") or ""
         if not target_id:
             return
         key = (endpoint.port, target_id)
@@ -846,7 +848,7 @@ class Daemon:
             self._sync_enabled_from_steam_client()
 
     def _on_target_info_changed(self, endpoint: Endpoint, info: dict[str, typing.Any]) -> None:
-        target_id = info.get("targetId")
+        target_id: str = info.get("targetId") or ""
         sid = self.target_sessions.get((endpoint.port, target_id))
         session = self.sessions.get(sid) if sid else None
         if session is None:
@@ -870,12 +872,12 @@ class Daemon:
         if sid:
             self._drop_session(sid)
 
-    def _drop_session(self, session_id: str | None) -> None:
-        if not session_id:
-            return
+    def _drop_session(self, session_id: str) -> None:
+        # clean self.sessions
         session = self.sessions.pop(session_id, None)
         if session is None:
             return
+        # clean self.target_sessions
         for key, sid in list(self.target_sessions.items()):
             if sid == session_id:
                 self.target_sessions.pop(key, None)
@@ -936,7 +938,7 @@ class Daemon:
                 return
             Daemon._send_binding_handshake(session)
 
-    def _on_binding_called(self, session_id: str | None, payload: str) -> None:
+    def _on_binding_called(self, session_id: str, payload: str) -> None:
         msg = parse_binding_message(payload)
         if msg is None:
             return
