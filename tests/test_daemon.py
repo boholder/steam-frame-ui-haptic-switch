@@ -276,6 +276,81 @@ class AttachFailureTests(unittest.TestCase):
             self.assertEqual(daemon.target_sessions, {})
 
 
+class BackoffEndpoint:
+    kind = d.KIND_STEAM
+    port = 8080
+
+    def __init__(self):
+        self.alive = False
+        self.ever_connected = False
+        self.next_connect = 0.0
+        self.connect_calls = 0
+        self.close_calls = 0
+
+    def connect(self):
+        self.connect_calls += 1
+
+    def close(self):
+        self.close_calls += 1
+
+
+class EndpointBackoffTests(unittest.TestCase):
+    def _daemon(self, tmp):
+        return d.Daemon(8080, 8087, {"gate": "g", "ui": "u"}, os.path.join(tmp, "state.json"))
+
+    def test_a_never_connected_endpoint_retries_immediately(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp)
+            endpoint = BackoffEndpoint()
+
+            daemon._ensure_endpoint_connected(endpoint, 100.0)
+
+            self.assertEqual(endpoint.connect_calls, 1)
+            self.assertTrue(endpoint.ever_connected)
+            self.assertEqual(endpoint.next_connect, 0.0)
+
+    def test_a_dropped_connection_backs_off_before_reconnecting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp)
+            endpoint = BackoffEndpoint()
+            endpoint.ever_connected = True
+
+            daemon._ensure_endpoint_connected(endpoint, 100.0)
+            self.assertEqual(endpoint.next_connect, 100.0 + d.RETRY_SECONDS)
+            self.assertEqual(endpoint.connect_calls, 0)
+
+            daemon._ensure_endpoint_connected(endpoint, 100.0 + d.RETRY_SECONDS - 0.1)
+            self.assertEqual(endpoint.connect_calls, 0)
+
+            daemon._ensure_endpoint_connected(endpoint, 100.0 + d.RETRY_SECONDS)
+            self.assertEqual(endpoint.connect_calls, 1)
+
+    def test_a_failed_attempt_backs_off(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp)
+            endpoint = BackoffEndpoint()
+            endpoint.connect = mock.Mock(side_effect=OSError("not ready"))
+
+            daemon._ensure_endpoint_connected(endpoint, 100.0)
+
+            endpoint.connect.assert_called_once()
+            self.assertEqual(endpoint.close_calls, 1)
+            self.assertEqual(endpoint.next_connect, 100.0 + d.RETRY_SECONDS)
+
+    def test_dropping_a_dead_endpoint_also_drops_its_sessions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp)
+            endpoint = BackoffEndpoint()
+            endpoint.ever_connected = True
+            daemon.sessions["sid"] = d.Session(endpoint, "sid", "tid", "systemui", "")
+            daemon.steam_synced = True
+
+            daemon._ensure_endpoint_connected(endpoint, 100.0)
+
+            self.assertEqual(daemon.sessions, {})
+            self.assertFalse(daemon.steam_synced)
+
+
 class StateWriteTests(unittest.TestCase):
     def _daemon(self, tmp, enabled=True):
         daemon = d.Daemon(8080, 8087, {"gate": "g", "ui": "u"}, os.path.join(tmp, "state.json"))

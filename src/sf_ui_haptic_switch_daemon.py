@@ -10,9 +10,9 @@ across two Chromium Embedded Framework (CEF) DevTools endpoints:
 The switch itself lives in the Quick Access Menu on ``:8080``. Its value lives
 in ``localStorage['sf_ui_haptic_switch']`` and is the single source of truth.
 When the user flips it, the UI writes that key and calls the
-``__sfUiHapticSwitchSend`` CDP binding. The daemon reads the key back, persists
-it to ``~/.local/state/sf-ui-haptic-switch/state.json`` and pushes it into every
-``:8087`` page. The daemon never writes back to ``:8080``.
+``__sfUiHapticSwitchSend`` CDP (Chrome DevTools Protocol) binding. The daemon
+reads the key back, persists it to ``~/.local/state/sf-ui-haptic-switch/state.json``
+and pushes it into every ``:8087`` page. The daemon never writes back to ``:8080``.
 
 Target discovery is event-driven: one browser-level WebSocket per endpoint,
 ``Target.setDiscoverTargets``, then ``Target.attachToTarget {flatten:true}`` for
@@ -674,12 +674,14 @@ class Daemon:
     def _ensure_endpoint_connected(self, endpoint: Endpoint, now: float) -> None:
         if endpoint.alive:
             return
-        # Endpoint is dead for sure: drop its sessions.
-        # A connection that died must back off; an endpoint that has never
-        # been seen (Steam still starting) is allowed to try immediately.
+        # The connection died:
         self._drop_sessions_of_endpoint(endpoint)
-        if endpoint.ever_connected and endpoint.next_connect == 0:
+        # a previous successful connect (ever_connected=True) set next_connect to 0.0,
+        # so start the retry timer now.
+        if endpoint.ever_connected and endpoint.next_connect == 0.0:
             endpoint.next_connect = now + RETRY_SECONDS
+        # Wait out the retry timer. A never-connected endpoint (ever_connected
+        # is False) never sets one, so it is retried immediately.
         if now < endpoint.next_connect:
             return
         try:
