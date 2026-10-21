@@ -52,17 +52,17 @@ class TargetTests(unittest.TestCase):
         self.assertFalse(d.is_page_type_target({}))
 
     def test_ui_target(self):
-        self.assertTrue(d.is_quick_access_menu_target("SteamVR - valve.steam.gamepadui.barpopup.1", "about:blank"))
-        self.assertTrue(d.is_quick_access_menu_target("", "about:blank?vrOverlayKey=valve.steam.gamepadui.barpopup.1"))
-        self.assertFalse(d.is_quick_access_menu_target("SharedJSContext", "https://steamloopback.host"))
+        self.assertTrue(d.is_quick_access_menu("SteamVR - valve.steam.gamepadui.barpopup.1", "about:blank"))
+        self.assertTrue(d.is_quick_access_menu("", "about:blank?vrOverlayKey=valve.steam.gamepadui.barpopup.1"))
+        self.assertFalse(d.is_quick_access_menu("SharedJSContext", "https://steamloopback.host"))
 
     def test_scripts_for(self):
-        self.assertEqual(d.script_slots_for_target("SteamVR - valve.steam.gamepadui.barpopup.1", "", d.KIND_STEAM), ["gate", "ui"])
-        self.assertEqual(d.script_slots_for_target("systemui", "", d.KIND_STEAM), ["gate"])
+        self.assertEqual(d.script_names_for_target("SteamVR - valve.steam.gamepadui.barpopup.1", "", d.KIND_STEAM), ["gate", "ui"])
+        self.assertEqual(d.script_names_for_target("systemui", "", d.KIND_STEAM), ["gate"])
 
     def test_vr_never_gets_the_qam_ui(self):
-        self.assertEqual(d.script_slots_for_target("valve.steam.gamepadui.barpopup", "", d.KIND_VR), ["gate"])
-        self.assertEqual(d.script_slots_for_target("valve.steam.gamepadui.barpopup", "", d.KIND_STEAM), ["gate", "ui"])
+        self.assertEqual(d.script_names_for_target("valve.steam.gamepadui.barpopup", "", d.KIND_VR), ["gate"])
+        self.assertEqual(d.script_names_for_target("valve.steam.gamepadui.barpopup", "", d.KIND_STEAM), ["gate", "ui"])
 
 
 class FakeSocket:
@@ -419,18 +419,18 @@ class InjectionExprTests(unittest.TestCase):
         self.assertNotEqual(d.build_script_marker("x"), d.build_script_marker("y"))
         self.assertEqual(len(d.build_script_marker("x")), 12)
 
-    def test_probe_reads_the_slot(self):
+    def test_probe_reads_the_script(self):
         e = d.build_script_marker_probe("gate")
         self.assertIn(d.GLOBAL, e)
         self.assertIn('"gate"', e)
 
-    def test_inject_stamps_the_slot(self):
+    def test_inject_stamps_the_script(self):
         e = d.build_script_injection("doThing();", "ui", "deadbeef")
         self.assertTrue(e.startswith("doThing();"))
         self.assertIn('"ui"', e)
         self.assertIn('"deadbeef"', e)
 
-    def test_teardown_touches_both_slots(self):
+    def test_teardown_touches_both_scripts(self):
         e = d.JS_TEAR_DOWN_EXPR
         self.assertIn(d.GLOBAL, e)
         self.assertIn(".ui.teardown", e)

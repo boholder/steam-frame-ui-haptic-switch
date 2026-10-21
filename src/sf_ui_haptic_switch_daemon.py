@@ -362,7 +362,7 @@ class Endpoint:
             mid = self._id
         ev = threading.Event()
         box: dict[str, typing.Any] = {}
-        # Register before sending so an immediate reply cannot miss the slot.
+        # Register before sending so an immediate reply cannot miss the pending entry.
         with self._pending_lock:
             self._pending[mid] = (ev, box)
         msg: dict[str, typing.Any] = {"id": mid, "method": method, "params": params or {}}
@@ -442,8 +442,8 @@ UI_MATCH = "valve.steam.gamepadui.barpopup"
 GATE_JS = "sf_ui_haptic_switch_gate.js"
 UI_JS = "sf_ui_haptic_switch_ui.js"
 
-SLOT_GATE = "gate"
-SLOT_UI = "ui"
+SCRIPT_GATE = "gate"
+SCRIPT_UI = "ui"
 
 RETRY_SECONDS = 1.0
 HANDSHAKE_TIMEOUT = 1.0
@@ -514,20 +514,20 @@ def is_page_type_target(info: object) -> bool:
     return isinstance(info, dict) and info.get("type") == "page"
 
 
-def is_quick_access_menu_target(title: str | None, url: str | None) -> bool:
+def is_quick_access_menu(title: str | None, url: str | None) -> bool:
     return UI_MATCH in ((title or "") + (url or ""))
 
 
-def script_slots_for_target(title: str, url: str, kind: str) -> list[str]:
+def script_names_for_target(title: str, url: str, kind: str) -> list[str]:
     """Which scripts a page needs.
 
     The gate goes everywhere. The QAM UI is a Steam-client concept: it must
     never be installed into a SteamVR Dashboard page, even if a Dashboard URL
-    happens to contain the barpopup key.
+    happens to contain the vary barpopup key.
     """
-    if kind == KIND_STEAM and is_quick_access_menu_target(title, url):
-        return [SLOT_GATE, SLOT_UI]
-    return [SLOT_GATE]
+    if kind == KIND_STEAM and is_quick_access_menu(title, url):
+        return [SCRIPT_GATE, SCRIPT_UI]
+    return [SCRIPT_GATE]
 
 
 def build_script_marker(source: str) -> str:
@@ -535,12 +535,12 @@ def build_script_marker(source: str) -> str:
     return hashlib.sha1(source.encode("utf-8")).hexdigest()[:12]
 
 
-def build_script_marker_probe(slot: str) -> str:
-    return "((window.%s && window.%s.build && window.%s.build[%s]) || '')" % (GLOBAL, GLOBAL, GLOBAL, json.dumps(slot))
+def build_script_marker_probe(script: str) -> str:
+    return "((window.%s && window.%s.build && window.%s.build[%s]) || '')" % (GLOBAL, GLOBAL, GLOBAL, json.dumps(script))
 
 
-def build_script_injection(source: str, slot: str, marker: str) -> str:
-    # The appended epilogue records the marker in window[GLOBAL].build[slot],
+def build_script_injection(source: str, script: str, marker: str) -> str:
+    # The appended epilogue records the marker in window[GLOBAL].build[script],
     # which is exactly what build_script_marker_probe() reads back.
     epilogue = ";try{window.%s=window.%s||{};window.%s.build=window.%s.build||{};window.%s.build[%s]=%s;}catch(e){}" % (
         GLOBAL,
@@ -548,16 +548,16 @@ def build_script_injection(source: str, slot: str, marker: str) -> str:
         GLOBAL,
         GLOBAL,
         GLOBAL,
-        json.dumps(slot),
+        json.dumps(script),
         json.dumps(marker),
     )
     return source + epilogue
 
 
-def build_new_document_script(sources: dict[str, str], slots: list[str]) -> str:
+def build_new_document_script(sources: dict[str, str], script_names: list[str]) -> str:
     """Script registered with Page.addScriptToEvaluateOnNewDocument."""
     # The ";" guards concatenation if a script file omits its trailing semicolon.
-    return "\n;\n".join(build_script_injection(sources[slot], slot, build_script_marker(sources[slot])) for slot in slots)
+    return "\n;\n".join(build_script_injection(sources[script], script, build_script_marker(sources[script])) for script in script_names)
 
 
 def default_state_file_path() -> str:
@@ -598,9 +598,9 @@ def write_persisted_enabled(path: str, enabled: bool) -> None:
 def read_script_sources(script_dir: str) -> dict[str, str]:
     """{"gate":"gate js content", "ui":"ui js content"}"""
     sources = {}
-    for slot, name in ((SLOT_GATE, GATE_JS), (SLOT_UI, UI_JS)):
+    for script, name in ((SCRIPT_GATE, GATE_JS), (SCRIPT_UI, UI_JS)):
         with open(os.path.join(script_dir, name), encoding="utf-8") as f:
-            sources[slot] = f.read()
+            sources[script] = f.read()
     return sources
 
 
@@ -640,7 +640,7 @@ class Session:
     """One attached page target on one endpoint, a pure data object.
 
     Holds the CDP ``sessionId`` and ``targetId`` that identify the page, its
-    latest title/url, the script slots it should receive, and its handshake
+    latest title/url, the injected scripts it should receive, and its handshake
     progress.
 
     ``send_command()`` and ``evaluate()`` are thin facades that add
@@ -655,9 +655,9 @@ class Session:
         self.target_id = target_id
         self.title = title
         self.url = url
-        # Script slots for this page; is_ui caches the QAM check.
-        self.slots = script_slots_for_target(title, url, endpoint.kind)
-        self.is_ui = SLOT_UI in self.slots
+        # Injected script names for this page; is_ui caches the QAM check.
+        self.script_names = script_names_for_target(title, url, endpoint.kind)
+        self.is_ui = SCRIPT_UI in self.script_names
         self.handshake = Handshake()
 
     def send_command(
@@ -705,8 +705,8 @@ class Daemon:
         state_file: str,
     ) -> None:
         self.js_sources = js_sources
-        # Content marker per slot, so pages can report which build they run.
-        self.markers = {slot: build_script_marker(src) for slot, src in js_sources.items()}
+        # Content marker per script, so pages can report which build they run.
+        self.markers = {script: build_script_marker(src) for script, src in js_sources.items()}
         self.state_file = state_file
         self.enabled = read_persisted_enabled(state_file)
         # Reader threads push (endpoint, method, params, session_id) here.
@@ -846,6 +846,8 @@ class Daemon:
                     "flatten": True,
                 },
             )
+
+            # save references
             session_id = result.get("sessionId")
             if not session_id:
                 return
@@ -858,11 +860,13 @@ class Daemon:
             )
             self.sessions[session_id] = session
             self.target_sessions[key] = session_id
+
             # Runtime.enable delivers bindingCalled and executionContextCreated.
             session.send_command("Runtime.enable")
             session.send_command("Page.enable")
             self._initialize_session(session)
-            _debug("attached target %s (%s) on :%d" % (session.title, session.slots, endpoint.port))
+            _debug("attached target %s (%s) on :%d" % (session.title, session.script_names, endpoint.port))
+
         except Exception as e:
             log("attach failed on :%d target %s: %s" % (endpoint.port, info.get("title"), e))
             if session_id:
@@ -881,7 +885,7 @@ class Daemon:
         try:
             session.send_command(
                 "Page.addScriptToEvaluateOnNewDocument",
-                {"source": build_new_document_script(self.js_sources, session.slots)},
+                {"source": build_new_document_script(self.js_sources, session.script_names)},
             )
         except Exception as e:
             _debug("addScript failed on %s: %s" % (session.title, e))
@@ -903,11 +907,11 @@ class Daemon:
             return
         session.title = info.get("title") or session.title
         session.url = info.get("url") or session.url
-        slots = script_slots_for_target(session.title, session.url, endpoint.kind)
+        script_names = script_names_for_target(session.title, session.url, endpoint.kind)
         # A page can navigate into the QAM after attach; upgrade it in place.
-        if SLOT_UI in slots and not session.is_ui:
+        if SCRIPT_UI in script_names and not session.is_ui:
             session.is_ui = True
-            session.slots = slots
+            session.script_names = script_names
             try:
                 self._initialize_session(session)
             except Exception as e:
@@ -931,17 +935,17 @@ class Daemon:
     # -- injection ----------------------------------------------------------
 
     def _inject_into_current_document(self, session: Session) -> None:
-        for slot in session.slots:
-            source = self.js_sources.get(slot)
+        for script in session.script_names:
+            source = self.js_sources.get(script)
             if source is None:
                 continue
-            marker = self.markers[slot]
-            current = session.evaluate(build_script_marker_probe(slot))
+            marker = self.markers[script]
+            current = session.evaluate(build_script_marker_probe(script))
             # Same marker: the page already runs this exact build.
             if current == marker:
                 continue
-            session.evaluate(build_script_injection(source, slot, marker), timeout=20.0)
-            _debug("inject -> %s [%s] build %s" % (session.title, slot, marker))
+            session.evaluate(build_script_injection(source, script, marker), timeout=20.0)
+            _debug("inject -> %s [%s] build %s" % (session.title, script, marker))
 
     def _on_execution_context_created(self, session: Session) -> None:
         if session.is_ui:
@@ -1097,7 +1101,7 @@ def status(state_file: str, steam_port: int, vr_port: int) -> int:
                 continue
             pages += 1
             # there is only one special ui page that we want to inject our switch
-            if kind == KIND_STEAM and is_quick_access_menu_target(target.get("title"), target.get("url")):
+            if kind == KIND_STEAM and is_quick_access_menu(target.get("title"), target.get("url")):
                 ui = True
         return {"pages": pages, "ui": ui}
 
