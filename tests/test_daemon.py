@@ -276,14 +276,9 @@ class AttachFailureTests(unittest.TestCase):
             self.assertEqual(daemon.target_sessions, {})
 
 
-class BackoffEndpoint:
-    kind = d.KIND_STEAM
-    port = 8080
-
+class BackoffEndpoint(d.Endpoint):
     def __init__(self):
-        self.alive = False
-        self.ever_connected = False
-        self.next_connect = 0.0
+        super().__init__(8080, queue.Queue(), d.KIND_STEAM)
         self.connect_calls = 0
         self.close_calls = 0
 
@@ -306,17 +301,16 @@ class EndpointBackoffTests(unittest.TestCase):
             daemon._ensure_endpoint_connected(endpoint, 100.0)
 
             self.assertEqual(endpoint.connect_calls, 1)
-            self.assertTrue(endpoint.ever_connected)
-            self.assertEqual(endpoint.next_connect, 0.0)
+            self.assertEqual(endpoint.next_connect_at, 0.0)
 
     def test_a_dropped_connection_backs_off_before_reconnecting(self):
         with tempfile.TemporaryDirectory() as tmp:
             daemon = self._daemon(tmp)
             endpoint = BackoffEndpoint()
-            endpoint.ever_connected = True
+            endpoint.mark_connected()
 
             daemon._ensure_endpoint_connected(endpoint, 100.0)
-            self.assertEqual(endpoint.next_connect, 100.0 + d.RETRY_SECONDS)
+            self.assertEqual(endpoint.next_connect_at, 100.0 + d.RETRY_SECONDS)
             self.assertEqual(endpoint.connect_calls, 0)
 
             daemon._ensure_endpoint_connected(endpoint, 100.0 + d.RETRY_SECONDS - 0.1)
@@ -335,13 +329,13 @@ class EndpointBackoffTests(unittest.TestCase):
 
             endpoint.connect.assert_called_once()
             self.assertEqual(endpoint.close_calls, 1)
-            self.assertEqual(endpoint.next_connect, 100.0 + d.RETRY_SECONDS)
+            self.assertEqual(endpoint.next_connect_at, 100.0 + d.RETRY_SECONDS)
 
     def test_dropping_a_dead_endpoint_also_drops_its_sessions(self):
         with tempfile.TemporaryDirectory() as tmp:
             daemon = self._daemon(tmp)
             endpoint = BackoffEndpoint()
-            endpoint.ever_connected = True
+            endpoint.mark_connected()
             daemon.sessions["sid"] = d.Session(endpoint, "sid", "tid", "systemui", "")
             daemon.steam_synced = True
 

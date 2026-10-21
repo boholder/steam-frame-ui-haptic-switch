@@ -215,10 +215,11 @@ class Endpoint:
         self.reader: threading.Thread | None = None
         self.sender: threading.Thread | None = None
         self.alive = False
-        # Backoff bookkeeping: ever_connected separates "never up yet" (Steam
-        # still starting) from "dropped and waiting to retry".
-        self.ever_connected = False
-        self.next_connect = 0.0
+        # Retry bookkeeping in one field:
+        # None = never connected yet,
+        # 0.0 = connected (reconnect allowed immediately),
+        # a timestamp = wait.
+        self._retry_at: float | None = None
         # Monotonic CDP request id; _pending is keyed by it.
         self._id = 0
         self._id_lock = threading.Lock()
@@ -227,6 +228,22 @@ class Endpoint:
         self._pending_lock = threading.Lock()
         # Outgoing messages for the sender thread; it owns all socket writes.
         self._send_queue: queue.Queue[str | None] = queue.Queue()
+
+    @property
+    def connection_dropped(self) -> bool:
+        """True right after an established connection died."""
+        return self._retry_at == 0.0
+
+    @property
+    def next_connect_at(self) -> float:
+        """Earliest allowed reconnect; 0.0 means there is no wait."""
+        return self._retry_at or 0.0
+
+    def schedule_retry(self, now: float) -> None:
+        self._retry_at = now + RETRY_SECONDS
+
+    def mark_connected(self) -> None:
+        self._retry_at = 0.0
 
     def connect(self) -> None:
         ver = http_get_json("http://127.0.0.1:%d/json/version" % self.port)
@@ -255,7 +272,12 @@ class Endpoint:
             daemon=True,
         )
         self.sender.start()
+        # Subscribe to target events, so new pages are notified through
+        # Target.target* pushes instead of continuelly actively polling /json/list.
+        # It must come after the threads start: send_command() waits for
+        # a reply that only the reader thread can deliver.
         self.send_command("Target.setDiscoverTargets", {"discover": True})
+        self.mark_connected()
 
     def _sender_loop(self, ws: WebSocket) -> None:
         # A dedicated writer keeps a stuck sendall() from freezing the daemon's
@@ -674,24 +696,20 @@ class Daemon:
     def _ensure_endpoint_connected(self, endpoint: Endpoint, now: float) -> None:
         if endpoint.alive:
             return
-        # The connection died:
+        # The connection died: drop the sessions it owned.
         self._drop_sessions_of_endpoint(endpoint)
-        # a previous successful connect (ever_connected=True) set next_connect to 0.0,
-        # so start the retry timer now.
-        if endpoint.ever_connected and endpoint.next_connect == 0.0:
-            endpoint.next_connect = now + RETRY_SECONDS
-        # Wait out the retry timer. A never-connected endpoint (ever_connected
-        # is False) never sets one, so it is retried immediately.
-        if now < endpoint.next_connect:
+        # An established connection that just dropped waits RETRY_SECONDS before
+        # trying again; an endpoint that never came up retries immediately.
+        if endpoint.connection_dropped:
+            endpoint.schedule_retry(now)
+        if now < endpoint.next_connect_at:
             return
         try:
             endpoint.connect()
-            endpoint.ever_connected = True
-            endpoint.next_connect = 0.0
             log("attached endpoint :%d" % endpoint.port)
         except Exception as e:
             endpoint.close()
-            endpoint.next_connect = now + RETRY_SECONDS
+            endpoint.schedule_retry(now)
             _debug("endpoint :%d not ready: %s" % (endpoint.port, e))
 
     # -- event loop ---------------------------------------------------------
