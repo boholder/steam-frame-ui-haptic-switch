@@ -769,9 +769,8 @@ class Daemon:
     # -- endpoint lifecycle -------------------------------------------------
 
     def _drop_sessions_of_endpoint(self, endpoint: Endpoint) -> None:
-        for sid, session in list(self.sessions.items()):
-            if session.endpoint is endpoint:
-                self._drop_session(sid)
+        for session in [s for s in self.sessions.values() if s.endpoint is endpoint]:
+            self._drop_session(session)
 
     def _ensure_endpoint_connected(self, endpoint: Endpoint, now: float) -> None:
         if endpoint.alive:
@@ -843,9 +842,15 @@ class Daemon:
             info = params.get("targetInfo") or {}
             self._on_target_info_changed(endpoint, info)
         elif method == "Target.targetDestroyed":
-            self._drop_target(endpoint, params.get("targetId") or "")
+            target_id = params.get("targetId") or ""
+            sid = self.target_sessions.get((endpoint.port, target_id))
+            session = self.sessions.get(sid) if sid else None
+            if session is not None:
+                self._drop_session(session)
         elif method == "Target.detachedFromTarget":
-            self._drop_session(params.get("sessionId") or "")
+            session = self.sessions.get(params.get("sessionId") or "")
+            if session is not None:
+                self._drop_session(session)
         elif method == "Runtime.executionContextCreated":
             context = params.get("context") or {}
             aux = context.get("auxData") or {}
@@ -914,7 +919,9 @@ class Daemon:
                     )
                 except Exception:
                     pass
-            self._drop_target(endpoint, target_id)
+            session = self.sessions.get(session_id) if session_id else None
+            if session is not None:
+                self._drop_session(session)
 
     def _inject(self, session: Session) -> None:
         """Inject the page's scripts.
@@ -958,20 +965,14 @@ class Daemon:
             except Exception as e:
                 _debug("ui upgrade failed: %s" % e)
 
-    def _drop_target(self, endpoint: Endpoint, target_id: str) -> None:
-        sid = self.target_sessions.pop((endpoint.port, target_id), None)
-        if sid:
-            self._drop_session(sid)
+    def _drop_session(self, session: Session) -> None:
+        """Remove a session from both indexes.
 
-    def _drop_session(self, session_id: str) -> None:
-        # clean self.sessions
-        session = self.sessions.pop(session_id, None)
-        if session is None:
-            return
-        # clean self.target_sessions
-        for key, sid in list(self.target_sessions.items()):
-            if sid == session_id:
-                self.target_sessions.pop(key, None)
+        The target key is derived from the session, so pass the instance that
+        was registered; nothing else points the indexes at each other.
+        """
+        self.sessions.pop(session.session_id, None)
+        self.target_sessions.pop((session.endpoint.port, session.target_id), None)
 
     # -- injection ----------------------------------------------------------
 

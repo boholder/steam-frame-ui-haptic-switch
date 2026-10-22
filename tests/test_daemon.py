@@ -443,10 +443,12 @@ class EndpointBackoffTests(unittest.TestCase):
             endpoint = BackoffEndpoint()
             endpoint.mark_connected()
             daemon.sessions["sid"] = d.Session(endpoint, "sid", "tid", "systemui", "")
+            daemon.target_sessions[(endpoint.port, "tid")] = "sid"
 
             daemon._ensure_endpoint_connected(endpoint, 100.0)
 
             self.assertEqual(daemon.sessions, {})
+            self.assertEqual(daemon.target_sessions, {})
 
 
 class StateWriteTests(unittest.TestCase):
@@ -633,6 +635,38 @@ class PushTriggerTests(unittest.TestCase):
             )
 
             self.assertEqual(len(self._pushes(page)), 1)
+
+
+class DropSessionTests(unittest.TestCase):
+    def _daemon(self, tmp):
+        return d.Daemon(8080, 8087, {"gate": "g", "ui": "u"}, os.path.join(tmp, "state.json"))
+
+    def _registered(self, daemon):
+        endpoint = d.Endpoint(d.DEFAULT_STEAM_PORT, queue.Queue(), d.KIND_STEAM)
+        session = d.Session(endpoint, "sid", "tid", "page", "https://steamloopback.host/")
+        daemon.sessions[session.session_id] = session
+        daemon.target_sessions[(endpoint.port, session.target_id)] = session.session_id
+        return endpoint, session
+
+    def test_target_destroyed_drops_both_indexes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp)
+            endpoint, session = self._registered(daemon)
+
+            daemon._dispatch_cdp_event(endpoint, "Target.targetDestroyed", {"targetId": session.target_id}, None)
+
+            self.assertEqual(daemon.sessions, {})
+            self.assertEqual(daemon.target_sessions, {})
+
+    def test_detached_from_target_drops_both_indexes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp)
+            endpoint, session = self._registered(daemon)
+
+            daemon._dispatch_cdp_event(endpoint, "Target.detachedFromTarget", {"sessionId": session.session_id}, None)
+
+            self.assertEqual(daemon.sessions, {})
+            self.assertEqual(daemon.target_sessions, {})
 
 
 class PushStateTests(unittest.TestCase):
