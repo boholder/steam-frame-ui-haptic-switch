@@ -31,9 +31,8 @@
   var STATE_ATTR = 'data-sf-ui-haptic-state';
   var SECTION_ATTR = 'data-sf-ui-haptic-section';
 
-  var ui = null;          /* { checkbox } */
+  var mounted = false;    /* our row exists in the DOM */
   var tpl = null;
-  var bodyId = null;
   var observer = null;
   var scheduled = false;
   var scheduleTimer = null;
@@ -197,16 +196,10 @@
   }
 
   function targetBody(p) {
-    if (bodyId) {
-      var cached = document.getElementById(bodyId);
-      if (cached) return cached;
-      bodyId = null;
-    }
-    bodyId = loadBodyId();
-    if (bodyId) {
-      var saved = document.getElementById(bodyId);
-      if (saved) return saved;
-      bodyId = null;
+    var saved = loadBodyId();
+    if (saved) {
+      var el = document.getElementById(saved);
+      if (el) return el;
       try { sessionStorage.removeItem(BODY_KEY); } catch (e) {}
     }
     var best = null, bestScore = 0;
@@ -218,8 +211,7 @@
       if (s > bestScore) { bestScore = s; best = b; }
     });
     if (!best || bestScore < 2) return null;
-    bodyId = best.id;
-    try { sessionStorage.setItem(BODY_KEY, bodyId); } catch (e) {}
+    try { sessionStorage.setItem(BODY_KEY, best.id); } catch (e) {}
     return best;
   }
 
@@ -271,23 +263,22 @@
   function grabTemplate(body) {
     if (!body) return null;
     var probe = '[role="checkbox"]';
-    var toggle = body.querySelector(probe);
-    if (!toggle || mine(toggle)) return null;
 
     /* body > section > row, mirroring the stock layout: the section is the
      * group wrapper (reused for spacing), the row is what we clone. */
     var section = childWith(body, probe);
     if (!section) return null;
     var row = childWith(section, probe) || section;
+    if (mine(row)) return null;
 
     var ts = harvestToggleStates(body) || harvestToggleStates(document) || {};
 
     return {
       sectionCls: section.className || '',
       toggleRowHTML: row.outerHTML,
-      toggleOnExtra: ts.toggleOnExtra || null,
-      toggleOnHTML: ts.toggleOnHTML || null,
-      toggleOffHTML: ts.toggleOffHTML || null
+      toggleOnExtra: ts.toggleOnExtra,
+      toggleOnHTML: ts.toggleOnHTML,
+      toggleOffHTML: ts.toggleOffHTML
     };
   }
 
@@ -444,7 +435,6 @@
     var label = cb.getAttribute('aria-label');
     if (label) fresh.setAttribute('aria-label', label);
     if (cb.parentNode) cb.parentNode.replaceChild(fresh, cb);
-    if (ui) ui.checkbox = fresh;
     return finishToggle(fresh, on);
   }
 
@@ -459,10 +449,10 @@
     if (cb) {
       cb.removeAttribute('aria-labelledby');
       cb.setAttribute('aria-label', label);
-      cb = applyToggleLook(cb, readEnabled()) || cb;
+      applyToggleLook(cb, readEnabled());
     }
     stripIds(row);
-    return { row: row, checkbox: cb };
+    return row;
   }
 
   /* ------------------------------------------------------------------ */
@@ -494,9 +484,8 @@
     var existing = document.getElementById(ROW_ID);
     if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
 
-    var built = toggleRow(labelText(), ICON_HAPTIC);
-    if (!built) return false;
-    var row = built.row;
+    var row = toggleRow(labelText(), ICON_HAPTIC);
+    if (!row) return false;
 
     var host = body;
     if (tpl.sectionCls) {
@@ -508,19 +497,15 @@
     }
     body.appendChild(host);
 
-    ui = { checkbox: built.checkbox };
-    render();
+    mounted = true;
     log('switch mounted into ' + body.id);
     return true;
   }
 
   function render() {
-    if (!ui) return;
+    if (!mounted) return;
     var cb = liveCheckbox();
-    if (cb) {
-      cb = applyToggleLook(cb, readEnabled()) || cb;
-      ui.checkbox = cb;
-    }
+    if (cb) applyToggleLook(cb, readEnabled());
     var row = document.getElementById(ROW_ID);
     if (row) stripIds(row);
   }
@@ -576,7 +561,6 @@
     writeEnabled(next);
     sendEnabled(next);
     render();
-    return true;
   }
 
   function hookToggle() {
@@ -642,16 +626,13 @@
       removeSections();
       var look = document.getElementById(LOOK_STYLE_ID);
       if (look && look.parentNode) look.parentNode.removeChild(look);
-      ui = null; tpl = null;
+      mounted = false; tpl = null;
       try { if (NS.ui === API) NS.ui = null; } catch (e) {}
     }
   };
   NS.ui = API;
 
   tpl = loadTemplates();
-  if (tpl) {
-    bodyId = loadBodyId();
-  }
 
   hookToggle();
   startObserver();
