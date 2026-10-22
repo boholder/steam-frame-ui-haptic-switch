@@ -680,10 +680,20 @@ class Session:
         self.handshake.sent(time.time())
         try:
             self.send_command("Runtime.addBinding", {"name": BINDING})
+            # Daemon._on_binding_called() will receive "hello" message
             self.evaluate("window.%s(JSON.stringify({c:'hello'}))" % BINDING)
             _debug("handshake -> %s (attempt %d)" % (self.title, self.handshake.attempts))
         except Exception as e:
             _debug("handshake send failed: %s" % e)
+
+    def retry_handshake_if_due(self, now: float) -> bool:
+        """Retry when due; return True when the handshake is exhausted."""
+        if not self.is_ui or not self.handshake.due(now):
+            return False
+        if self.handshake.exhausted():
+            return True
+        self.send_handshake()
+        return False
 
     @property
     def steam(self) -> bool:
@@ -987,25 +997,22 @@ class Daemon:
 
     def _retry_due_handshakes(self, now: float) -> None:
         for session in list(self.sessions.values()):
-            if not session.is_ui or not session.handshake.due(now):
-                continue
-            if session.handshake.exhausted():
+            if session.retry_handshake_if_due(now):
                 # Exit non-zero on purpose: the service manager restarts us.
                 log("binding handshake failed after %d attempts; restarting" % session.handshake.attempts)
                 self.fatal = True
                 return
-            session.send_handshake()
 
     def _on_binding_called(self, session_id: str, payload: str) -> None:
         msg = parse_binding_message(payload)
         if msg is None:
             return
         session = self.sessions.get(session_id)
+        # Session.send_handshake() will send "hello" message
         if msg["kind"] == "hello":
-            # hello is the injected script confirming that the binding works.
             if session is not None and not session.handshake.ok:
                 session.handshake.ok = True
-                log("binding verified on %s" % session.title)
+                _debug("binding verified on %s" % session.title)
                 self._sync_enabled_from_steam_client()
             return
         _debug("binding <- %s (v=%s)" % (payload[:120], msg.get("enabled")))

@@ -284,6 +284,41 @@ class SessionHandshakeTests(unittest.TestCase):
         self.assertEqual(session.handshake.attempts, 1)
 
 
+class SessionHandshakeRetryTests(unittest.TestCase):
+    UI_TITLE = "SteamVR - valve.steam.gamepadui.barpopup.1"
+
+    def _session(self, title="systemui", attempts=0, deadline=None):
+        endpoint = SessionHandshakeTests.RecordingEndpoint()
+        session = d.Session(endpoint, "sid", "tid", title, "")
+        session.handshake.attempts = attempts
+        session.handshake.deadline = deadline
+        return session
+
+    def test_non_ui_sessions_never_retry(self):
+        session = self._session(deadline=100.0)
+
+        self.assertFalse(session.retry_handshake_if_due(100.0))
+        self.assertEqual(session.handshake.attempts, 0)
+
+    def test_nothing_happens_before_the_deadline(self):
+        session = self._session(title=self.UI_TITLE, deadline=200.0)
+
+        self.assertFalse(session.retry_handshake_if_due(100.0))
+        self.assertEqual(session.handshake.attempts, 0)
+
+    def test_a_due_handshake_sends_another_attempt(self):
+        session = self._session(title=self.UI_TITLE, attempts=1, deadline=100.0)
+
+        self.assertFalse(session.retry_handshake_if_due(100.0))
+        self.assertEqual(session.handshake.attempts, 2)
+
+    def test_an_exhausted_handshake_asks_for_a_restart(self):
+        session = self._session(title=self.UI_TITLE, attempts=d.HANDSHAKE_MAX_SENDS, deadline=100.0)
+
+        self.assertTrue(session.retry_handshake_if_due(100.0))
+        self.assertEqual(session.handshake.attempts, d.HANDSHAKE_MAX_SENDS)
+
+
 class AttachFailureTests(unittest.TestCase):
     class FakeEndpoint:
         kind = d.KIND_STEAM
