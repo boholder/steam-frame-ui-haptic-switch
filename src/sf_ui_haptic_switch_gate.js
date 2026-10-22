@@ -49,7 +49,7 @@
 
   /* Off only when explicitly "0"/"false"; missing or anything else = on, so a
    * storage hiccup never silences the stock behaviour by accident. */
-  function enabled() {
+  function hapticsEnabled() {
     try {
       var v = localStorage.getItem(KEY);
       return !(v === '0' || v === 'false');
@@ -57,36 +57,32 @@
   }
 
   function shouldDrop(effect) {
-    return !enabled() &&
-      typeof effect === 'number' &&
-      (effect === EFFECT_BUTTON_ENTER || effect === EFFECT_BUTTON_LEAVE);
+    return typeof effect === 'number' &&
+      (effect === EFFECT_BUTTON_ENTER || effect === EFFECT_BUTTON_LEAVE) &&
+      !hapticsEnabled();
   }
 
-  /* Steam's bridge takes the effect first; VRHTML's takes the overlay handle
-   * first. One parametrised wrapper covers both. */
-  function wrap(owner, effectArg) {
-    if (!owner || typeof owner[PROP] !== 'function') return false;
-
-    /* Already wrapped by us: take ownership so a later teardown restores it.
-     * The install timer runs every second, so do not append a duplicate
-     * record on every tick. */
-    var current = owner[PROP];
-    if (current.__sfUiHapticWrapped && current.__sfUiHapticOriginal) {
-      for (var i = 0; i < wrappers.length; i++) {
-        if (wrappers[i].patched === current) return true;
+  /* A wrapper installed by an earlier gate instance is adopted, not wrapped
+   * again, so every install tick has one registry record to restore. */
+  function adopt(owner, current) {
+    for (var i = 0; i < wrappers.length; i++) {
+      if (wrappers[i].owner === owner && wrappers[i].patched === current) {
+        return true;
       }
-      wrappers.push({
-        owner: owner,
-        prop: PROP,
-        patched: current,
-        original: current.__sfUiHapticOriginal
-      });
-      return true;
     }
+    wrappers.push({
+      owner: owner,
+      prop: PROP,
+      patched: current,
+      original: current.__sfUiHapticOriginal
+    });
+    return true;
+  }
 
+  function patch(owner, current, effectArg) {
     var patched = function () {
       if (shouldDrop(arguments[effectArg])) return undefined;
-      return Reflect.apply(current, this, arguments);
+      return current.apply(this, arguments);
     };
     patched.__sfUiHapticWrapped = true;
     patched.__sfUiHapticOriginal = current;
@@ -96,6 +92,17 @@
 
     wrappers.push({ owner: owner, prop: PROP, patched: patched, original: current });
     return true;
+  }
+
+  /* Steam's bridge takes the effect first; VRHTML's takes the overlay handle
+   * first. One parametrised wrapper covers both. */
+  function wrap(owner, effectArg) {
+    if (!owner || typeof owner[PROP] !== 'function') return false;
+    var current = owner[PROP];
+    if (current.__sfUiHapticWrapped && current.__sfUiHapticOriginal) {
+      return adopt(owner, current);
+    }
+    return patch(owner, current, effectArg);
   }
 
   function install() {
@@ -130,7 +137,7 @@
 
   var API = {
     v: 2,
-    enabled: enabled,
+    enabled: hapticsEnabled,
     install: install,
     teardown: teardown
   };

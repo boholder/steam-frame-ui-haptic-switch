@@ -196,6 +196,14 @@ class ContractTests(unittest.TestCase):
         body = m.group(1)
         self.assertLess(body.index("stopped = true;"), body.index("clearInterval(timer)"))
 
+    def test_gate_cleanup_contracts(self):
+        t = read(GATE)
+        self.assertIn("function hapticsEnabled", t)
+        self.assertIn("enabled: hapticsEnabled", t)
+        should = function_body(t, "shouldDrop")
+        self.assertIsNotNone(should)
+        self.assertLess(should.index("typeof effect"), should.index("hapticsEnabled()"))
+
     def test_gate_never_uses_the_binding(self):
         self.assertNotIn("__sfHapticSend", read(GATE))
         self.assertNotIn("__sfUiHapticSwitchSend", read(GATE))
