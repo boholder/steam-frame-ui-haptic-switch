@@ -379,7 +379,6 @@ class AttachFailureTests(unittest.TestCase):
             detach = next(c for c in endpoint.calls if c[0] == "Target.detachFromTarget")
             self.assertEqual(detach[1], {"sessionId": "sid-1"})
             self.assertEqual(daemon.sessions, {})
-            self.assertEqual(daemon.target_sessions, {})
 
 
 class BackoffEndpoint(d.Endpoint):
@@ -443,12 +442,10 @@ class EndpointBackoffTests(unittest.TestCase):
             endpoint = BackoffEndpoint()
             endpoint.mark_connected()
             daemon.sessions["sid"] = d.Session(endpoint, "sid", "tid", "systemui", "")
-            daemon.target_sessions[(endpoint.port, "tid")] = "sid"
 
             daemon._ensure_endpoint_connected(endpoint, 100.0)
 
             self.assertEqual(daemon.sessions, {})
-            self.assertEqual(daemon.target_sessions, {})
 
 
 class StateWriteTests(unittest.TestCase):
@@ -579,7 +576,6 @@ class HandshakeTriggerTests(unittest.TestCase):
             daemon = self._daemon(tmp)
             page = self.Page()
             daemon.sessions[page.session_id] = page
-            daemon.target_sessions[(page.endpoint.port, page.target_id)] = page.session_id
 
             daemon._dispatch_cdp_event(
                 page.endpoint,
@@ -645,10 +641,9 @@ class DropSessionTests(unittest.TestCase):
         endpoint = d.Endpoint(d.DEFAULT_STEAM_PORT, queue.Queue(), d.KIND_STEAM)
         session = d.Session(endpoint, "sid", "tid", "page", "https://steamloopback.host/")
         daemon.sessions[session.session_id] = session
-        daemon.target_sessions[(endpoint.port, session.target_id)] = session.session_id
         return endpoint, session
 
-    def test_target_destroyed_drops_both_indexes(self):
+    def test_target_destroyed_drops_the_session(self):
         with tempfile.TemporaryDirectory() as tmp:
             daemon = self._daemon(tmp)
             endpoint, session = self._registered(daemon)
@@ -656,9 +651,8 @@ class DropSessionTests(unittest.TestCase):
             daemon._dispatch_cdp_event(endpoint, "Target.targetDestroyed", {"targetId": session.target_id}, None)
 
             self.assertEqual(daemon.sessions, {})
-            self.assertEqual(daemon.target_sessions, {})
 
-    def test_detached_from_target_drops_both_indexes(self):
+    def test_detached_from_target_drops_the_session(self):
         with tempfile.TemporaryDirectory() as tmp:
             daemon = self._daemon(tmp)
             endpoint, session = self._registered(daemon)
@@ -666,7 +660,49 @@ class DropSessionTests(unittest.TestCase):
             daemon._dispatch_cdp_event(endpoint, "Target.detachedFromTarget", {"sessionId": session.session_id}, None)
 
             self.assertEqual(daemon.sessions, {})
-            self.assertEqual(daemon.target_sessions, {})
+
+
+class AttachGuardTests(unittest.TestCase):
+    class Endpoint:
+        def __init__(self, port=d.DEFAULT_STEAM_PORT, kind=d.KIND_STEAM):
+            self.port = port
+            self.kind = kind
+            self.calls = []
+
+        def send_command(self, method, params=None, timeout=10.0):
+            self.calls.append(method)
+            return {}
+
+    def test_an_attached_target_is_not_attached_again(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = d.Daemon(8080, 8087, {"gate": "g", "ui": "u"}, os.path.join(tmp, "state.json"))
+            endpoint = self.Endpoint()
+            daemon.sessions["sid"] = d.Session(endpoint, "sid", "tid", "page", "")
+
+            daemon._attach_to_page_target(endpoint, {"targetId": "tid", "title": "page", "url": ""})
+
+            self.assertEqual(endpoint.calls, [])
+
+    def test_the_same_target_id_on_another_endpoint_is_attached(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = d.Daemon(8080, 8087, {"gate": "g", "ui": "u"}, os.path.join(tmp, "state.json"))
+            steam = self.Endpoint()
+            daemon.sessions["sid"] = d.Session(steam, "sid", "tid", "page", "")
+            vr = self.Endpoint(port=d.DEFAULT_VR_PORT, kind=d.KIND_VR)
+
+            daemon._attach_to_page_target(vr, {"targetId": "tid", "title": "page", "url": ""})
+
+            self.assertIn("Target.attachToTarget", vr.calls)
+
+    def test_another_target_id_on_the_same_endpoint_is_attached(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = d.Daemon(8080, 8087, {"gate": "g", "ui": "u"}, os.path.join(tmp, "state.json"))
+            endpoint = self.Endpoint()
+            daemon.sessions["sid"] = d.Session(endpoint, "sid", "tid", "page", "")
+
+            daemon._attach_to_page_target(endpoint, {"targetId": "other", "title": "page", "url": ""})
+
+            self.assertIn("Target.attachToTarget", endpoint.calls)
 
 
 class PushStateTests(unittest.TestCase):

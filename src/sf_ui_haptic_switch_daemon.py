@@ -721,8 +721,7 @@ class Daemon:
 
     Owns the injected script sources and content markers, the persisted and
     in-memory switch value, the shared CDP event queue, the two ``Endpoint``
-    instances, and the session registries (``session_id -> Session`` and
-    ``(port, targetId) -> session_id``).
+    instances, and the session registry (``session_id -> Session``).
 
     It decides which targets to attach, injects scripts, runs the binding handshake,
     syncs and pushes the switch value, reconnects dead endpoints,
@@ -759,9 +758,6 @@ class Daemon:
         # A session is one attached page target on one endpoint: several pages
         # share a single browser WebSocket, each with its own CDP session id.
         self.sessions: dict[str, Session] = {}
-        # reverse index (endpoint port, CDP targetId) -> session_id
-        # For ensuring one target is attached at most once per endpoint.
-        self.target_sessions: dict[tuple[int, str], str] = {}
         # running: cleared by the SIGTERM/SIGINT handler; fatal: restart us.
         self.running = True
         self.fatal = False
@@ -841,9 +837,7 @@ class Daemon:
             self._on_target_info_changed(endpoint, info)
 
         elif method == "Target.targetDestroyed":
-            target_id = params.get("targetId") or ""
-            sid = self.target_sessions.get((endpoint.port, target_id))
-            session = self.sessions.get(sid) if sid else None
+            session = self._session_for_target(endpoint, params.get("targetId") or "")
             if session is not None:
                 self._drop(session)
 
@@ -871,13 +865,20 @@ class Daemon:
 
     # -- target lifecycle ---------------------------------------------------
 
+    def _session_for_target(self, endpoint: Endpoint, target_id: str) -> Session | None:
+        """The session attached to this endpoint's target, if any."""
+        # The registry is small; a scan beats keeping a second index in sync.
+        for session in self.sessions.values():
+            if session.endpoint is endpoint and session.target_id == target_id:
+                return session
+        return None
+
     def _attach_to_page_target(self, endpoint: Endpoint, info: dict[str, typing.Any]) -> None:
         target_id: str = info.get("targetId") or ""
         if not target_id:
             return
-        key = (endpoint.port, target_id)
         # already attached, skip
-        if key in self.target_sessions:
+        if self._session_for_target(endpoint, target_id) is not None:
             return
 
         session_id: str | None = None
@@ -892,7 +893,7 @@ class Daemon:
                 },
             )
 
-            # save references
+            # register the session
             session_id = result.get("sessionId")
             if not session_id:
                 return
@@ -904,7 +905,6 @@ class Daemon:
                 info.get("url") or "",
             )
             self.sessions[session_id] = session
-            self.target_sessions[key] = session_id
 
             # Runtime.enable delivers bindingCalled and executionContextCreated.
             session.send_command("Runtime.enable")
@@ -944,8 +944,7 @@ class Daemon:
 
     def _on_target_info_changed(self, endpoint: Endpoint, info: dict[str, typing.Any]) -> None:
         target_id: str = info.get("targetId") or ""
-        sid = self.target_sessions.get((endpoint.port, target_id))
-        session = self.sessions.get(sid) if sid else None
+        session = self._session_for_target(endpoint, target_id)
 
         if session is None:
             if is_page_type_target(info):
@@ -971,9 +970,8 @@ class Daemon:
                 _debug("ui upgrade failed: %s" % e)
 
     def _drop(self, session: Session) -> None:
-        """Remove a session reference from both indexes."""
+        """Remove a session from the registry."""
         self.sessions.pop(session.session_id, None)
-        self.target_sessions.pop((session.endpoint.port, session.target_id), None)
 
     # -- injection ----------------------------------------------------------
 
