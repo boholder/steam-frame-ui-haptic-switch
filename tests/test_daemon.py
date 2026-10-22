@@ -443,12 +443,12 @@ class EndpointBackoffTests(unittest.TestCase):
             endpoint = BackoffEndpoint()
             endpoint.mark_connected()
             daemon.sessions["sid"] = d.Session(endpoint, "sid", "tid", "systemui", "")
-            daemon.steam_synced = True
+            daemon.synced_with_steam = True
 
             daemon._ensure_endpoint_connected(endpoint, 100.0)
 
             self.assertEqual(daemon.sessions, {})
-            self.assertFalse(daemon.steam_synced)
+            self.assertFalse(daemon.synced_with_steam)
 
 
 class StateWriteTests(unittest.TestCase):
@@ -463,20 +463,20 @@ class StateWriteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             daemon = self._daemon(tmp, enabled=True)
             with mock.patch.object(d, "write_persisted_enabled", side_effect=OSError("disk full")):
-                daemon._apply_enabled_and_push_to_vr(False, "switch")
+                daemon._apply_state_and_push_to_vr(False, "switch")
 
             self.assertTrue(daemon.enabled)
-            self.assertFalse(daemon.steam_synced)
+            self.assertFalse(daemon.synced_with_steam)
             self.assertEqual(daemon.pushed, [True])
 
     def test_write_success_keeps_the_new_value_and_marks_synced(self):
         with tempfile.TemporaryDirectory() as tmp:
             daemon = self._daemon(tmp, enabled=True)
 
-            daemon._apply_enabled_and_push_to_vr(False, "switch")
+            daemon._apply_state_and_push_to_vr(False, "switch")
 
             self.assertFalse(daemon.enabled)
-            self.assertTrue(daemon.steam_synced)
+            self.assertTrue(daemon.synced_with_steam)
             self.assertEqual(daemon.pushed, [False])
             self.assertFalse(d.read_persisted_enabled(daemon.state_file))
 
@@ -484,10 +484,10 @@ class StateWriteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             daemon = self._daemon(tmp, enabled=False)
             with mock.patch.object(d, "write_persisted_enabled", side_effect=OSError("should not write")):
-                daemon._apply_enabled_and_push_to_vr(False, "sync")
+                daemon._apply_state_and_push_to_vr(False, "sync")
 
             self.assertFalse(daemon.enabled)
-            self.assertTrue(daemon.steam_synced)
+            self.assertTrue(daemon.synced_with_steam)
 
 
 class PushStateTests(unittest.TestCase):

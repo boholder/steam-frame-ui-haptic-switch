@@ -763,7 +763,7 @@ class Daemon:
         # For ensuring one target is attached at most once per endpoint.
         self.target_sessions: dict[tuple[int, str], str] = {}
         # True only when the persisted value matches what :8080 reported last.
-        self.steam_synced = False
+        self.synced_with_steam = False
         # running: cleared by the SIGTERM/SIGINT handler; fatal: restart us.
         self.running = True
         self.fatal = False
@@ -775,7 +775,7 @@ class Daemon:
             if session.endpoint is endpoint:
                 self._drop_session(sid)
         if endpoint.kind == KIND_STEAM:
-            self.steam_synced = False
+            self.synced_with_steam = False
 
     def _ensure_endpoint_connected(self, endpoint: Endpoint, now: float) -> None:
         if endpoint.alive:
@@ -934,8 +934,8 @@ class Daemon:
             session.start_handshake()
         if session.vr:
             self._push_state_to(session)
-        if session.can_read_local_storage_flag and not self.steam_synced:
-            self._sync_enabled_from_steam_client()
+        if session.can_read_local_storage_flag and not self.synced_with_steam:
+            self._sync_state_from_steam_client()
 
     def _on_target_info_changed(self, endpoint: Endpoint, info: dict[str, typing.Any]) -> None:
         target_id: str = info.get("targetId") or ""
@@ -993,7 +993,7 @@ class Daemon:
     def _on_execution_context_created(self, session: Session) -> None:
         if session.is_ui:
             session.start_handshake()
-            self._sync_enabled_from_steam_client()
+            self._sync_state_from_steam_client()
         if session.vr:
             # A Dashboard page reloaded: its localStorage may have been
             # recreated, so put the current value back immediately.
@@ -1023,7 +1023,7 @@ class Daemon:
             if session is not None and not session.handshake.ok:
                 session.handshake.ok = True
                 _debug("binding verified on %s" % session.title)
-                self._sync_enabled_from_steam_client()
+                self._sync_state_from_steam_client()
             return
         _debug("binding <- %s (v=%s)" % (payload[:120], msg.get("enabled")))
         self._on_switch_toggled_by_user()
@@ -1042,7 +1042,7 @@ class Daemon:
                 return session
         return None
 
-    def _read_enabled_from_steam_client(self) -> bool | None:
+    def _read_state_from_steam_client(self) -> bool | None:
         session = self._choose_steam_session_for_flag_read()
         if session is None:
             return None
@@ -1066,30 +1066,30 @@ class Daemon:
             return False
         return True
 
-    def _apply_enabled_and_push_to_vr(self, enabled: bool, source: str) -> None:
+    def _apply_state_and_push_to_vr(self, enabled: bool, source: str) -> None:
         if self._persist_enabled_change(enabled):
             if source == "switch":
                 log("switch -> %s" % enabled)
             else:
                 _debug("state <- :8080 %s" % enabled)
         # Synced only when the write stuck and the QAM agrees with us.
-        self.steam_synced = self.enabled == enabled
+        self.synced_with_steam = self.enabled == enabled
         self._push_state_to_all_vr_sessions()
 
-    def _sync_enabled_from_steam_client(self) -> None:
-        enabled = self._read_enabled_from_steam_client()
+    def _sync_state_from_steam_client(self) -> None:
+        enabled = self._read_state_from_steam_client()
         if enabled is None:
             return
-        self._apply_enabled_and_push_to_vr(enabled, "sync")
+        self._apply_state_and_push_to_vr(enabled, "sync")
 
     def _on_switch_toggled_by_user(self) -> None:
-        enabled = self._read_enabled_from_steam_client()
+        enabled = self._read_state_from_steam_client()
         if enabled is None:
             # :8080 is the authority and could not be read. Keep the persisted
             # value; never persist the binding hint in its place.
             self._push_state_to_all_vr_sessions()
             return
-        self._apply_enabled_and_push_to_vr(enabled, "switch")
+        self._apply_state_and_push_to_vr(enabled, "switch")
 
     def _push_state_to_all_vr_sessions(self) -> None:
         # localStorage is per origin: one write per endpoint reaches every
