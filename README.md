@@ -9,10 +9,8 @@
 > The **Steam** tab that appears after connecting to SteamVR, and the native
 > Dashboard frame controls, are not covered by the default switch. The optional
 > [Aggressive UI haptics off (optional)](#aggressive-ui-haptics-off-optional)
-> section and its
-> [`scripts/aggressive-ui-haptics.sh`](scripts/aggressive-ui-haptics.sh) script
-> can mute all laser-mouse UI haptics, including these. It requires root, also
-> mutes sliders/snap/edges, and leaves game/OpenXR haptics untouched.
+> script can mute all laser-mouse UI haptics, including these.
+> It requires root, also mutes sliders/snap/edges, and leaves game/OpenXR haptics untouched.
 
 On the Steam Frame, the controller's virtual cursor fires a short haptic tick
 every time it lands on a UI button. In the headset menus that feedback is
@@ -69,7 +67,7 @@ whichever haptic bridge that page has and, while the switch is off, drops only:
 The switch itself (`sf_ui_haptic_switch_ui.js`) is injected into the Quick
 Access Menu page only. Flipping it:
 
-1. writes `localStorage['sf_ui_haptic_switch']` (`'1'`/`'0'`) — this is the
+1. writes `localStorage['sf_ui_haptic_switch']` (`true`/`false`) — this is the
    single source of truth, and the same-page gate reacts immediately;
 2. calls the `__sfUiHapticSwitchSend` CDP binding to tell the daemon.
 

@@ -2,7 +2,7 @@
  *
  * Appends a single "Controller UI Haptic" switch to the end of the Quick
  * Settings tab. Flipping it writes `localStorage['sf_ui_haptic_switch']`
- * ('0'/'1') and then notifies the daemon through the __sfUiHapticSwitchSend
+ * (true/false) and then notifies the daemon through the __sfUiHapticSwitchSend
  * binding. The daemon persists the value and pushes it to the SteamVR
  * dashboard pages; the gate script in every page reads the flag at call time.
  * The daemon never writes back to :8080, so there is no echo and no pending
@@ -57,7 +57,7 @@
   }
 
   function writeEnabled(on) {
-    try { localStorage.setItem(KEY, on ? '1' : '0'); } catch (e) {}
+    try { localStorage.setItem(KEY, on ? 'true' : 'false'); } catch (e) {}
   }
 
   /* Notify the daemon. The value it reads from localStorage is authoritative;
@@ -447,7 +447,7 @@
   }
 
   function finishToggle(cb, on) {
-    cb.setAttribute(STATE_ATTR, on ? '1' : '0');
+    cb.setAttribute(STATE_ATTR, on ? 'true' : 'false');
     cb.setAttribute('aria-checked', on ? 'true' : 'false');
     pinToggleLook(cb, on);
     return cb;
@@ -455,7 +455,7 @@
 
   function applyToggleLook(cb, on) {
     if (!cb || !tpl) return cb;
-    var want = on ? '1' : '0';
+    var want = on ? 'true' : 'false';
     if (cb.getAttribute(STATE_ATTR) === want) {
       return finishToggle(cb, on);
     }
@@ -645,8 +645,8 @@
       lastFlip = now;
 
       var shown = cb.getAttribute(STATE_ATTR);
-      var on = shown === '1' ? true
-             : (shown === '0' ? false : readEnabled());
+      var on = shown === 'true' ? true
+             : (shown === 'false' ? false : readEnabled());
       setEnabled(!on);
     }
 
