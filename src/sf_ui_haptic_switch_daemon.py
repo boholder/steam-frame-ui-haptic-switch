@@ -478,11 +478,6 @@ def _debug(*a: object) -> None:
 # --------------------------------------------------------------------------
 
 
-def storage_value_to_enabled(value: str | None) -> bool:
-    """Off only for explicit "0"/"false"; missing or junk means on."""
-    return not (value == "0" or value == "false")
-
-
 def parse_binding_message(payload: str) -> tuple[str, bool | None] | None:
     """Parse a binding payload.
 
@@ -1019,10 +1014,10 @@ class Daemon:
         parsed = parse_binding_message(payload)
         if parsed is None:
             return
-        kind, enabled = parsed
+        command, enabled = parsed
         session = self.sessions.get(session_id)
         # Session.send_handshake() will send "hi" message
-        if kind == PAYLOAD_HI:
+        if command == PAYLOAD_HI:
             if session is not None and not session.handshake.ok:
                 session.handshake.ok = True
                 _debug("binding verified on %s" % session.title)
@@ -1051,10 +1046,11 @@ class Daemon:
             return None
         try:
             raw = session.evaluate("localStorage.getItem(%s)" % json.dumps(KEY))
-            return storage_value_to_enabled(raw)
         except Exception as e:
             _debug("read :8080 flag failed: %s" % e)
             return None
+        # Off only for an explicit "0"/"false"; missing or junk means on.
+        return not (raw == "0" or raw == "false")
 
     def _persist_enabled_change(self, enabled: bool) -> bool:
         if enabled == self.enabled:

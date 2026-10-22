@@ -15,14 +15,62 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import sf_ui_haptic_switch_daemon as d
 
 
-class FlagTests(unittest.TestCase):
+class FlagReadTests(unittest.TestCase):
+    class Page(d.Session):
+        def __init__(self, value):
+            super().__init__(
+                d.Endpoint(d.DEFAULT_STEAM_PORT, queue.Queue(), d.KIND_STEAM),
+                "sid",
+                "tid",
+                "page",
+                "https://steamloopback.host/",
+            )
+            self.value = value
+            self.evaluations = []
+
+        def evaluate(self, expr, timeout=10.0):
+            self.evaluations.append(expr)
+            return self.value
+
+    def _read(self, value):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = d.Daemon(8080, 8087, {"gate": "g", "ui": "u"}, os.path.join(tmp, "state.json"))
+            page = self.Page(value)
+            daemon.sessions[page.session_id] = page
+            return daemon._read_state_from_steam_client()
+
+    def test_reads_the_flag_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = d.Daemon(8080, 8087, {"gate": "g", "ui": "u"}, os.path.join(tmp, "state.json"))
+            page = self.Page("true")
+            daemon.sessions[page.session_id] = page
+
+            daemon._read_state_from_steam_client()
+
+            self.assertEqual(page.evaluations, [f'localStorage.getItem("{d.KEY}")'])
+
+    def test_a_failed_read_is_unknown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = d.Daemon(8080, 8087, {"gate": "g", "ui": "u"}, os.path.join(tmp, "state.json"))
+            page = self.Page("true")
+            page.evaluate = mock.Mock(side_effect=d.WSError("boom"))
+            daemon.sessions[page.session_id] = page
+
+            self.assertIsNone(daemon._read_state_from_steam_client())
+
+    def test_no_readable_session_is_unknown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = d.Daemon(8080, 8087, {"gate": "g", "ui": "u"}, os.path.join(tmp, "state.json"))
+
+            self.assertIsNone(daemon._read_state_from_steam_client())
+
     def test_missing_or_junk_means_on(self):
         for value in (None, "", "junk", "true", "1", "yes"):
-            self.assertTrue(d.storage_value_to_enabled(value), value)
+            self.assertTrue(self._read(value), value)
 
     def test_explicit_off_values(self):
         for value in ("0", "false"):
-            self.assertFalse(d.storage_value_to_enabled(value), value)
+            self.assertFalse(self._read(value), value)
 
 
 class PayloadTests(unittest.TestCase):
