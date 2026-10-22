@@ -1,6 +1,9 @@
+# Controller UI Haptic — Steam Frame 用スイッチ
+
 [English](../README.md) | [简体中文](README_ZH.md) | **日本語**
 
-# Controller UI Haptic — Steam Frame 用スイッチ
+> [!NOTE]
+> 著者はすべてのコードを自身でレビュー済みです。
 
 > [!NOTE]
 > SteamVR に接続した後に表示される「**Steam**」タブでは、コントローラーのハプティックフィードバックが残ります。この状況は本プラグインの制御範囲外で（ホスト PC 側の変更が必要）、修正できません。

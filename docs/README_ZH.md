@@ -1,6 +1,9 @@
+# Controller UI Haptic — 为 Steam Frame 增加一个开关
+
 [English](../README.md) | **简体中文** | [日本語](README_JP.md)
 
-# Controller UI Haptic — 为 Steam Frame 增加一个开关
+> [!NOTE]
+> 已人工审查所有代码。
 
 > [!NOTE]
 > 连接 SteamVR 后出现的 **Steam** 页面仍有手柄震动反馈，该情景超出本插件控制范围（需修改宿主机），恕无法修复。
