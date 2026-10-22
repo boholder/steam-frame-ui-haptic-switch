@@ -48,7 +48,7 @@ Steam クライアント UI と SteamVR Dashboard はどちらも Chromium Embed
 
 スイッチ本体（`sf_ui_haptic_switch_ui.js`）はクイックアクセスメニューのページにのみ注入されます。切り替えると：
 
-1. `localStorage['sf_ui_haptic_switch']`（`'1'`/`'0'`）を書き込みます——これが唯一の真実の源で、同じページの gate が即座に反応します；
+1. `localStorage['sf_ui_haptic_switch']`（`'true'`/`'false'`）を書き込みます——これが唯一の真実の源で、同じページの gate が即座に反応します；
 2. `__sfUiHapticSwitchSend` CDP バインディングを呼び、daemon に通知します。
 
 daemon は `:8080` から値を読み戻し、`~/.local/state/sf-ui-haptic-switch/state.json` に永続化して、すべての `:8087` ページにプッシュします。`:8080` には決して書き戻さないため、スイッチが往復して暴走することはありません。定期ポーリングはありません：daemon は起動時、再接続時、そしてページが新しい実行コンテキストを得たときにも再同期します。

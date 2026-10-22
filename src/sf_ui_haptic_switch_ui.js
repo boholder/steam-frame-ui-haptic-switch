@@ -416,7 +416,7 @@
   }
 
   function finishToggle(cb, on) {
-    cb.setAttribute(STATE_ATTR, on ? '1' : '0');
+    cb.setAttribute(STATE_ATTR, on ? 'true' : 'false');
     cb.setAttribute('aria-checked', on ? 'true' : 'false');
     pinToggleLook(cb, on);
     return cb;
@@ -424,7 +424,7 @@
 
   function applyToggleLook(cb, on) {
     if (!cb || !tpl) return cb;
-    var want = on ? '1' : '0';
+    var want = on ? 'true' : 'false';
     if (cb.getAttribute(STATE_ATTR) === want) {
       return finishToggle(cb, on);
     }
@@ -604,8 +604,8 @@
       lastFlip = now;
 
       var shown = cb.getAttribute(STATE_ATTR);
-      var on = shown === '1' ? true
-             : (shown === '0' ? false : readEnabled());
+      var on = shown === 'true' ? true
+             : (shown === 'false' ? false : readEnabled());
       setEnabled(!on);
     }
 

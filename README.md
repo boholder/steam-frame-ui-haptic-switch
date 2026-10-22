@@ -62,7 +62,7 @@ whichever haptic bridge that page has and, while the switch is off, drops only:
 The switch itself (`sf_ui_haptic_switch_ui.js`) is injected into the Quick
 Access Menu page only. Flipping it:
 
-1. writes `localStorage['sf_ui_haptic_switch']` (`'1'`/`'0'`) — this is the
+1. writes `localStorage['sf_ui_haptic_switch']` (`'true'`/`'false'`) — this is the
    single source of truth, and the same-page gate reacts immediately;
 2. calls the `__sfUiHapticSwitchSend` CDP binding to tell the daemon.
 

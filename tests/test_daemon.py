@@ -439,7 +439,7 @@ class PushStateTests(unittest.TestCase):
                 daemon.enabled = enabled
                 session = RecordingSession([], {})
 
-                daemon._push_state_to_session(session)
+                daemon._push_state_to(session)
 
                 expressions = [expr for expr, _ in session.evaluations]
                 self.assertEqual(expressions, [f'localStorage.setItem("{d.KEY}", {literal})'])

@@ -48,7 +48,7 @@ Steam 客户端 UI 与 SteamVR Dashboard 都是 Chromium Embedded Framework (CEF
 
 开关本身（`sf_ui_haptic_switch_ui.js`）只注入快速访问菜单页面。切换它会：
 
-1. 写入 `localStorage['sf_ui_haptic_switch']`（`'1'`/`'0'`）——这是唯一事实来源，同页的 gate 会立即响应；
+1. 写入 `localStorage['sf_ui_haptic_switch']`（`'true'`/`'false'`）——这是唯一事实来源，同页的 gate 会立即响应；
 2. 调用 `__sfUiHapticSwitchSend` CDP binding 通知 daemon。
 
 daemon 会从 `:8080` 读回该值，持久化到 `~/.local/state/sf-ui-haptic-switch/state.json`，并推送到每个 `:8087` 页面。它从不回写 `:8080`，因此开关不会来回弹跳。没有周期性轮询：daemon 还会在启动时、重连时，以及页面获得新的执行上下文时重新同步。

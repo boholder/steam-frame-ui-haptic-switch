@@ -726,9 +726,7 @@ class Daemon:
         self.expected_markers = {script: build_script_marker(src) for script, src in js_sources.items()}
         # JS expression that asks a page which marker it currently has.
         self.marker_probe_exprs = {name: build_script_marker_probe(name) for name in js_sources}
-        self.injections = {
-            name: build_script_injection(src, name, self.expected_markers[name]) for name, src in js_sources.items()
-        }
+        self.injections = {name: build_script_injection(src, name, self.expected_markers[name]) for name, src in js_sources.items()}
         self.state_file = state_file
         self.enabled = read_persisted_enabled(state_file)
         # Reader threads push (endpoint, method, params, session_id) here.
