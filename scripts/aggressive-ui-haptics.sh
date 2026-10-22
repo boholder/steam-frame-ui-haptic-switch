@@ -43,51 +43,68 @@ After apply/revert, restart SteamVR for the compositor to reload bindings.
 EOF
 }
 
+require_root() {
+  [ "$(id -u)" -eq 0 ] || die "root required: sudo $0 $1"
+}
+
 is_mounted() {
   [ "$(findmnt -n -o TARGET -T "$TARGET" 2>/dev/null || true)" = "$TARGET" ]
 }
 
-# 0 = haptics present, 1 = already removed, 2 = unreadable/invalid
-haptics_present() {
-  python3 - "$1" <<'PY'
+# One JSON reader for both commands. `check` prints "present" or "absent";
+# `patch` removes the haptics mapping with an atomic temp-file replace.
+binding_edit() {
+  python3 - "$1" "$2" <<'PY'
 import json
+import os
 import sys
 
-try:
-    with open(sys.argv[1], encoding="utf-8") as f:
-        data = json.load(f)
-except Exception as exc:
-    print("cannot read %s: %s" % (sys.argv[1], exc), file=sys.stderr)
-    raise SystemExit(2)
-
-laser = data.get("bindings", {}).get("/actions/lasermouse")
-if not isinstance(laser, dict):
-    print("missing /actions/lasermouse in %s" % sys.argv[1], file=sys.stderr)
-    raise SystemExit(2)
-
-raise SystemExit(0 if laser.get("haptics") else 1)
-PY
-}
-
-patch_copy() {
-  python3 - "$1" <<'PY'
-import json
-import sys
-
-path = sys.argv[1]
+path, mode = sys.argv[1], sys.argv[2]
 try:
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
-    laser = data["bindings"]["/actions/lasermouse"]
-    if not laser.get("haptics"):
-        raise SystemExit("lasermouse haptics already absent")
+    laser = data.get("bindings", {}).get("/actions/lasermouse")
+    if not isinstance(laser, dict):
+        raise ValueError("missing /actions/lasermouse")
+except Exception as exc:
+    print("cannot read %s: %s" % (path, exc), file=sys.stderr)
+    raise SystemExit(2)
+
+if mode == "check":
+    print("present" if laser.get("haptics") else "absent")
+    raise SystemExit(0)
+if mode != "patch":
+    raise SystemExit("unknown mode: %s" % mode)
+if not laser.get("haptics"):
+    raise SystemExit("lasermouse haptics already absent")
+
+tmp = path + ".tmp"
+try:
     del laser["haptics"]
-    with open(path, "w", encoding="utf-8") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
         f.write("\n")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)
 except Exception as exc:
+    try:
+        os.unlink(tmp)
+    except OSError:
+        pass
     raise SystemExit("patch failed: %s" % exc)
 PY
+}
+
+remove_unit() {
+  local stop="$1"
+  [ -f "$UNIT" ] || return 0
+  if [ "$stop" = stop ]; then
+    systemctl disable --now "$UNIT" >/dev/null 2>&1 || true
+  else
+    systemctl disable "$UNIT" >/dev/null 2>&1 || true
+  fi
+  rm -f "$UNIT"
+  systemctl daemon-reload
 }
 
 status() {
@@ -96,22 +113,18 @@ status() {
   else
     echo "mount:   original"
   fi
-  if haptics_present "$TARGET"; then
-    echo "haptics: present"
+  state=$(binding_edit "$TARGET" check) || die "cannot inspect $TARGET"
+  if [ "$state" = absent ]; then
+    echo "haptics: absent (patched)"
   else
-    rc=$?
-    if [ "$rc" -eq 1 ]; then
-      echo "haptics: absent (patched)"
-    else
-      die "cannot inspect $TARGET"
-    fi
+    echo "haptics: present"
   fi
   [ -f "$COPY" ] && echo "copy:    $COPY" || echo "copy:    none"
   [ -f "$UNIT" ] && echo "unit:    $UNIT" || echo "unit:    none"
 }
 
 apply() {
-  [ "$(id -u)" -eq 0 ] || die "root required: sudo $0 apply"
+  require_root apply
   command -v python3 >/dev/null 2>&1 || die "python3 not found"
   command -v mount >/dev/null 2>&1 || die "mount not found"
   [ -f "$TARGET" ] || die "missing $TARGET"
@@ -122,13 +135,25 @@ apply() {
     return 0
   fi
 
+  state=$(binding_edit "$TARGET" check) || die "cannot inspect $TARGET"
+  if [ "$state" != present ]; then
+    die "binding already lacks haptics but no bind mount is active; refusing to guess"
+  fi
+
   install -d -m 0755 "$STATE_DIR"
   cp -p "$TARGET" "$COPY"
-  patch_copy "$COPY"
-  mount --bind "$COPY" "$TARGET"
-  is_mounted || die "bind mount did not take effect"
-  if haptics_present "$TARGET"; then
-    die "patched copy is not visible through the mount"
+  binding_edit "$COPY" patch
+  if ! mount --bind "$COPY" "$TARGET"; then
+    die "bind mount failed; patched copy left at $COPY"
+  fi
+  if ! is_mounted; then
+    die "bind mount did not take effect; patched copy left at $COPY"
+  fi
+  state=$(binding_edit "$TARGET" check) || {
+    die "cannot inspect the mounted binding; patched copy left at $COPY"
+  }
+  if [ "$state" = present ]; then
+    die "patched copy is not visible through the mount; kept at $COPY"
   fi
 
   echo "applied: /actions/lasermouse haptics removed (bind mount)"
@@ -139,7 +164,7 @@ apply() {
 }
 
 persist() {
-  [ "$(id -u)" -eq 0 ] || die "root required: sudo $0 persist"
+  require_root persist
   [ -f "$COPY" ] || die "run apply first"
   cat > "$UNIT" <<EOF
 [Unit]
@@ -152,7 +177,7 @@ Before=graphical.target
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/bin/mount --bind $COPY $TARGET
-ExecStop=/bin/umount $TARGET
+ExecStop=-/bin/umount $TARGET
 
 [Install]
 WantedBy=multi-user.target
@@ -166,11 +191,9 @@ EOF
 }
 
 unpersist() {
-  [ "$(id -u)" -eq 0 ] || die "root required: sudo $0 unpersist"
+  require_root unpersist
   if [ -f "$UNIT" ]; then
-    systemctl disable "$UNIT" >/dev/null 2>&1 || true
-    rm -f "$UNIT"
-    systemctl daemon-reload
+    remove_unit keep
     echo "removed $UNIT (current mount, if any, was left in place)"
   else
     echo "no unit installed"
@@ -178,17 +201,14 @@ unpersist() {
 }
 
 revert() {
-  [ "$(id -u)" -eq 0 ] || die "root required: sudo $0 revert"
-  if [ -f "$UNIT" ]; then
-    systemctl disable "$UNIT" >/dev/null 2>&1 || true
-    rm -f "$UNIT"
-    systemctl daemon-reload
-  fi
+  require_root revert
+  remove_unit stop
   if is_mounted; then
     umount "$TARGET"
   fi
   rm -f "$COPY"
-  if haptics_present "$TARGET"; then
+  state=$(binding_edit "$TARGET" check) || die "cannot inspect $TARGET"
+  if [ "$state" = present ]; then
     echo "reverted: original binding is visible again"
     echo "next:     restart SteamVR for the compositor to reload bindings"
   else

@@ -107,11 +107,28 @@ class ScriptContractTests(unittest.TestCase):
 
     def test_aggressive_ui_haptics_script_is_reversible(self):
         t = read(os.path.join(ROOT, "scripts", "aggressive-ui-haptics.sh"))
-        for needle in ("apply", "persist", "unpersist", "revert", "status",
-                       "mount --bind", "umount", "findmnt", "lasermouse",
-                       "haptics", "id -u", "/var/lib/sf-ui-haptic-switch"):
+        for needle in (
+            "apply",
+            "persist",
+            "unpersist",
+            "revert",
+            "status",
+            "require_root",
+            "remove_unit",
+            "binding_edit",
+            "os.replace",
+            "mount --bind",
+            "umount",
+            "findmnt",
+            "lasermouse",
+            "haptics",
+            "id -u",
+            "/var/lib/sf-ui-haptic-switch",
+            "systemctl disable --now",
+            "ExecStop=-/bin/umount",
+        ):
             self.assertIn(needle, t)
-        self.assertIn('ExecStart=/bin/mount --bind $COPY $TARGET', t)
+        self.assertIn("ExecStart=/bin/mount --bind $COPY $TARGET", t)
 
     def test_cdp_transport_lives_in_the_daemon(self):
         t = read(os.path.join(SRC, "sf_ui_haptic_switch_daemon.py"))
