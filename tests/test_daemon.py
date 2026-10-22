@@ -508,8 +508,11 @@ class StateWriteTests(unittest.TestCase):
     def test_write_failure_reverts(self):
         with tempfile.TemporaryDirectory() as tmp:
             daemon = self._daemon(tmp, enabled=True)
-            with mock.patch.object(d, "write_persisted_enabled", side_effect=OSError("disk full")):
-                daemon._apply_state_and_push_to_vr(False, "switch")
+            with (
+                mock.patch.object(daemon, "_read_state_from_steam_client", return_value=False),
+                mock.patch.object(d, "write_persisted_enabled", side_effect=OSError("disk full")),
+            ):
+                daemon._on_switch_toggled_by_user()
 
             self.assertTrue(daemon.enabled)
             self.assertEqual(daemon.pushed, [True])
@@ -517,8 +520,8 @@ class StateWriteTests(unittest.TestCase):
     def test_write_success_keeps_the_new_value(self):
         with tempfile.TemporaryDirectory() as tmp:
             daemon = self._daemon(tmp, enabled=True)
-
-            daemon._apply_state_and_push_to_vr(False, "switch")
+            with mock.patch.object(daemon, "_read_state_from_steam_client", return_value=False):
+                daemon._on_switch_toggled_by_user()
 
             self.assertFalse(daemon.enabled)
             self.assertEqual(daemon.pushed, [False])
@@ -527,10 +530,36 @@ class StateWriteTests(unittest.TestCase):
     def test_an_unchanged_value_is_not_written(self):
         with tempfile.TemporaryDirectory() as tmp:
             daemon = self._daemon(tmp, enabled=False)
-            with mock.patch.object(d, "write_persisted_enabled", side_effect=OSError("should not write")):
-                daemon._apply_state_and_push_to_vr(False, "sync")
+            with (
+                mock.patch.object(daemon, "_read_state_from_steam_client", return_value=False),
+                mock.patch.object(d, "write_persisted_enabled", side_effect=OSError("should not write")),
+            ):
+                daemon._on_switch_toggled_by_user()
 
             self.assertFalse(daemon.enabled)
+            self.assertEqual(daemon.pushed, [False])
+
+    def test_an_unreadable_value_keeps_the_persisted_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp, enabled=False)
+            with (
+                mock.patch.object(daemon, "_read_state_from_steam_client", return_value=None),
+                mock.patch.object(d, "write_persisted_enabled") as write,
+            ):
+                daemon._on_switch_toggled_by_user()
+
+            write.assert_not_called()
+            self.assertFalse(daemon.enabled)
+            self.assertEqual(daemon.pushed, [False])
+
+    def test_sync_persists_and_pushes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp, enabled=True)
+            with mock.patch.object(daemon, "_read_state_from_steam_client", return_value=False):
+                daemon._sync_state_from_ui()
+
+            self.assertFalse(daemon.enabled)
+            self.assertEqual(daemon.pushed, [False])
 
 
 class StateSyncTriggerTests(unittest.TestCase):

@@ -990,7 +990,7 @@ class Daemon:
             # On a first load or a reload this is the moment to (re)send the
             # binding: whatever the page answered before no longer applies.
             session.start_handshake()
-            self._sync_state_from_steam_client()
+            self._sync_state_from_ui()
         if session.vr:
             # A Dashboard page attached or reloaded: its localStorage may be
             # missing or recreated, so put the current value back.
@@ -1021,7 +1021,7 @@ class Daemon:
             if session is not None and not session.handshake.ok:
                 session.handshake.ok = True
                 _debug("binding verified on %s" % session.title)
-                self._sync_state_from_steam_client()
+                self._sync_state_from_ui()
             return
         _debug("binding <- %s (v=%s)" % (payload[:120], enabled))
         self._on_switch_toggled_by_user()
@@ -1065,33 +1065,30 @@ class Daemon:
             return False
         return True
 
-    def _apply_state_and_push_to_vr(self, enabled: bool, source: str) -> None:
-        if self._persist_enabled_change(enabled):
-            if source == "switch":
-                log("switch -> %s" % enabled)
-            else:
-                _debug("state <- :8080 %s" % enabled)
-        self._push_state_to_all_vr_sessions()
-
-    def _sync_state_from_steam_client(self) -> None:
+    def _sync_state_from_ui(self) -> None:
         enabled = self._read_state_from_steam_client()
         if enabled is None:
             return
-        self._apply_state_and_push_to_vr(enabled, "sync")
+        # The UI is authoritative: adopt its value whenever it is readable.
+        if self._persist_enabled_change(enabled):
+            _debug("sync from steam client -> %s" % enabled)
+        self._push_state_to_all_vr_sessions()
 
     def _on_switch_toggled_by_user(self) -> None:
         enabled = self._read_state_from_steam_client()
-        if enabled is None:
-            # :8080 is the authority and could not be read. Keep the persisted
-            # value; never persist the binding hint in its place.
-            self._push_state_to_all_vr_sessions()
-            return
-        self._apply_state_and_push_to_vr(enabled, "switch")
+        if enabled is not None:
+            changed = self._persist_enabled_change(enabled)
+            if changed:
+                log("user switch -> %s" % enabled)
+        # Push the best-known value: this daemon is VR's only writer, so a push
+        # here also repairs one that was missed while :8080 was unreadable.
+        self._push_state_to_all_vr_sessions()
 
     def _push_state_to_all_vr_sessions(self) -> None:
         # localStorage is per origin: one write per endpoint reaches every
         # page that shares it. data: pages have an opaque origin and are skipped.
         for endpoint in self.endpoints:
+            # :8080's localStorage is the authority, so only write the Dashboards pages
             if endpoint.kind != KIND_VR:
                 continue
             for session in self.sessions.values():

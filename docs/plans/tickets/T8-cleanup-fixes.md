@@ -74,7 +74,7 @@
 - `_apply_enabled` 由回滚后的状态判断落盘是否成功：`ok = self.enabled == enabled`。写盘成功或值未变化时为 True；写盘失败被回滚后为 False。
 - ~~`self.synced_with_steam = ok`（D7）：写盘失败时置 False，下一次 `_prepare_session` 会再次 `_sync_from_steam()`；成功或未变化时置 True。~~（该标志已移除，见 D7 注。）
 - 无论成败都 `_push_vr()`；`_set_enabled` 返回 False 时推的是回滚后的旧值。
-- **已知取舍**：`:8080` localStorage 已是新值，`:8087` 会被推回旧值；下一次 `_sync_state_from_steam_client()` 会再次尝试写盘。如果磁盘持续失败，UI 与 8087 会短暂不一致。这是原 Q2 B + D7 选择的后果，ticket 接受。
+- **已知取舍**：`:8080` localStorage 已是新值，`:8087` 会被推回旧值；下一次 `_sync_state_from_ui()` 会再次尝试写盘。如果磁盘持续失败，UI 与 8087 会短暂不一致。这是原 Q2 B + D7 选择的后果，ticket 接受。
 
 **测试**：用 fake `save_state` 抛异常；断言 `self.enabled` 保留旧值，且 `_push_vr` 推的是旧值。再补一个写盘成功的用例，断言新值被保留。
 
