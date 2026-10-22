@@ -43,6 +43,7 @@ SHELL_FILES=(
   installation_lib.sh
   scripts/check.sh
   scripts/probe-device.sh
+  scripts/aggressive-ui-haptics.sh
 )
 
 echo "== shellcheck"

@@ -6,7 +6,7 @@
 > 已人工审查所有代码。
 
 > [!NOTE]
-> 连接 SteamVR 后出现的 **Steam** 页面仍有手柄震动反馈，该情景超出本插件控制范围（需修改宿主机），恕无法修复。
+> 连接 SteamVR 后出现的 **Steam** 页面和 Dashboard 原生 frame 控件不在默认开关范围内；可选用 [「可选：关闭全部 UI 触感」](#可选关闭全部-ui-触感) 章节及 [aggressive 脚本](../scripts/aggressive-ui-haptics.sh) 关闭全部 UI laser-mouse 触感。需要 root，滑杆/吸附/边缘也会静音，游戏/OpenXR 不受影响。
 
 在 Steam Frame 上，手柄的虚拟光标每次落到 UI 按钮上都会触发一次短促的触觉反馈。在头显菜单里这种反馈持续不断，而系统没有提供关闭它的方式。
 
@@ -87,6 +87,25 @@ service 直接从 checkout 运行 `src/sf_ui_haptic_switch_daemon.py`。移动�
 - 开关值保存在 Steam 客户端配置 / 状态文件中。重置该配置会把开关恢复为**开**。
 - 只拦截两种按钮悬停效果。滑杆与吸附触觉刻意保持原样。
 - 游戏和 OpenXR 应用产生的触觉完全不在范围内。
+
+## 可选：关闭全部 UI 触感
+
+默认开关只拦截 CEF 页面里的 `ButtonEnter`/`ButtonLeave`。Dashboard 原生 frame 控件和远程 Steam 页面走 SteamVR 原生的 `lasermouse` 触感 action，因此仍会震动。
+
+`scripts/aggressive-ui-haptics.sh` 把去掉 `lasermouse.haptics` 的副本 bind-mount 到 SteamOS 只读根上的原文件，从而屏蔽该 action：
+
+```bash
+cd steam-frame-ui-haptic-switch
+sudo ./scripts/aggressive-ui-haptics.sh apply
+sudo ./scripts/aggressive-ui-haptics.sh persist   # 开机自动重建
+sudo ./scripts/aggressive-ui-haptics.sh revert    # 撤销
+```
+
+- 关闭**所有** laser-mouse UI 触感（hover、滑杆、吸附、边缘），包括原生 Dashboard 控件和远程 Steam 页面。
+- 不影响游戏 / OpenXR / Steam Input 触感。
+- 需要 root；`persist` 会安装 `sf-ui-haptic-binding.service`。
+- QAM 开关不控制这个模式。
+- SteamVR 更新后先 `revert` 再 `apply`，刷新副本。
 
 ## 日志与状态
 

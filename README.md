@@ -6,9 +6,13 @@
 > The author has personally reviewed all of the code.
 
 > [!NOTE]
-> The **Steam** tab that appears after connecting to SteamVR still gives
-> controller haptics. That case is outside this plugin's control (it needs
-> a change on the host PC) and will not be fixed here.
+> The **Steam** tab that appears after connecting to SteamVR, and the native
+> Dashboard frame controls, are not covered by the default switch. The optional
+> [Aggressive UI haptics off (optional)](#aggressive-ui-haptics-off-optional)
+> section and its
+> [`scripts/aggressive-ui-haptics.sh`](scripts/aggressive-ui-haptics.sh) script
+> can mute all laser-mouse UI haptics, including these. It requires root, also
+> mutes sliders/snap/edges, and leaves game/OpenXR haptics untouched.
 
 On the Steam Frame, the controller's virtual cursor fires a short haptic tick
 every time it lands on a UI button. In the headset menus that feedback is
@@ -65,7 +69,7 @@ whichever haptic bridge that page has and, while the switch is off, drops only:
 The switch itself (`sf_ui_haptic_switch_ui.js`) is injected into the Quick
 Access Menu page only. Flipping it:
 
-1. writes `localStorage['sf_ui_haptic_switch']` (`'true'`/`'false'`) — this is the
+1. writes `localStorage['sf_ui_haptic_switch']` (`'1'`/`'0'`) — this is the
    single source of truth, and the same-page gate reacts immediately;
 2. calls the `__sfUiHapticSwitchSend` CDP binding to tell the daemon.
 
@@ -114,6 +118,29 @@ but leaves the checkout.
 - Only the two button-hover effects are gated. Slider and snap haptics are
   deliberately left alone.
 - Haptics emitted by games and OpenXR applications are out of scope entirely.
+
+## Aggressive UI haptics off (optional)
+
+The default switch gates only `ButtonEnter`/`ButtonLeave` in CEF pages. Dashboard
+native frame controls and the remote Steam tab use SteamVR's native
+`lasermouse` haptic action, so they still tick.
+
+`scripts/aggressive-ui-haptics.sh` masks that action with a bind mount over the
+read-only SteamOS root file:
+
+```bash
+cd steam-frame-ui-haptic-switch
+sudo ./scripts/aggressive-ui-haptics.sh apply
+sudo ./scripts/aggressive-ui-haptics.sh persist   # recreate at boot
+sudo ./scripts/aggressive-ui-haptics.sh revert    # undo
+```
+
+- Mutes **all** laser-mouse UI haptics (hover, sliders, snap, slider edges),
+  including native Dashboard controls and the remote Steam tab.
+- Does **not** affect game / OpenXR / Steam Input haptics.
+- Requires root. `persist` installs `sf-ui-haptic-binding.service`.
+- The QAM switch does not control this mode.
+- After a SteamVR update, run `revert` then `apply` to refresh the copy.
 
 ## Logs and status
 

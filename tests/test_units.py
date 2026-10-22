@@ -105,6 +105,14 @@ class ScriptContractTests(unittest.TestCase):
         self.assertNotIn("TIMER=", lib)
         self.assertIn("STATE_DIR", lib)
 
+    def test_aggressive_ui_haptics_script_is_reversible(self):
+        t = read(os.path.join(ROOT, "scripts", "aggressive-ui-haptics.sh"))
+        for needle in ("apply", "persist", "unpersist", "revert", "status",
+                       "mount --bind", "umount", "findmnt", "lasermouse",
+                       "haptics", "id -u", "/var/lib/sf-ui-haptic-switch"):
+            self.assertIn(needle, t)
+        self.assertIn('ExecStart=/bin/mount --bind $COPY $TARGET', t)
+
     def test_cdp_transport_lives_in_the_daemon(self):
         t = read(os.path.join(SRC, "sf_ui_haptic_switch_daemon.py"))
         for symbol in ("class WSError", "class WebSocket", "def http_get_json", "class Endpoint"):

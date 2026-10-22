@@ -6,7 +6,7 @@
 > 著者はすべてのコードを自身でレビュー済みです。
 
 > [!NOTE]
-> SteamVR に接続した後に表示される「**Steam**」タブでは、コントローラーのハプティックフィードバックが残ります。この状況は本プラグインの制御範囲外で（ホスト PC 側の変更が必要）、修正できません。
+> SteamVR に接続した後に表示される「**Steam**」タブと Dashboard のネイティブ frame コントロールは、既定のスイッチでは対象外です。[「任意: UI ハプティックをすべて無効化」](#任意-ui-ハプティックをすべて無効化) と [aggressive スクリプト](../scripts/aggressive-ui-haptics.sh) で、laser-mouse UI ハプティックをまとめて無効にできます。root が必要で、スライダー/スナップ/端も無効になりますが、ゲーム/OpenXR には影響しません。
 
 Steam Frame では、コントローラーの仮想カーソルが UI ボタンに乗るたびに短いハプティック（触覚）フィードバックが発生します。ヘッドセットのメニューではこのフィードバックが常に続き、システム側にオフにする方法はありません。
 
@@ -87,6 +87,25 @@ service は checkout から `src/sf_ui_haptic_switch_daemon.py` を直接実行�
 - スイッチの値は Steam クライアントのプロファイル / 状態ファイルに保存されます。プロファイルをリセットするとスイッチは**オン**に戻ります。
 - ゲートするのは 2 つのボタンホバー効果だけです。スライダーとスナップのハプティックは意図的にそのままにしています。
 - ゲームや OpenXR アプリケーションが出すハプティックは完全に対象外です。
+
+## 任意: UI ハプティックをすべて無効化
+
+既定のスイッチは CEF ページの `ButtonEnter`/`ButtonLeave` だけをゲートします。Dashboard のネイティブ frame コントロールとリモート Steam タブは SteamVR のネイティブ `lasermouse` ハプティック action を使うため、まだ振動します。
+
+`scripts/aggressive-ui-haptics.sh` は、`lasermouse.haptics` を削除したコピーを SteamOS の読み取り専用ルート上の元ファイルに bind mount して、その action を遮断します:
+
+```bash
+cd steam-frame-ui-haptic-switch
+sudo ./scripts/aggressive-ui-haptics.sh apply
+sudo ./scripts/aggressive-ui-haptics.sh persist   # 起動時に再作成
+sudo ./scripts/aggressive-ui-haptics.sh revert    # 元に戻す
+```
+
+- **すべての** laser-mouse UI ハプティック（ホバー、スライダー、スナップ、端）を無効化。ネイティブ Dashboard コントロールとリモート Steam タブを含みます。
+- ゲーム / OpenXR / Steam Input のハプティックには影響しません。
+- root が必要です。`persist` は `sf-ui-haptic-binding.service` をインストールします。
+- QAM スイッチではこのモードを切り替えられません。
+- SteamVR 更新後は `revert` → `apply` を実行してコピーを更新してください。
 
 ## ログと状態
 
