@@ -3,36 +3,25 @@
  *  :8080 Steam client UI:
  *    SteamClient.OpenVR.TriggerOverlayHapticEffect(effect, controllerOrHand)
  *    -> the effect id is arguments[0]
- *
  *  :8087 SteamVR Dashboard:
  *    VRHTML.VROverlay.TriggerOverlayHapticEffect(overlayHandle, effect)
  *    -> the effect id is arguments[1]
  *
  * EOverlayHapticEffect (read from the live Dashboard bundle):
- *   0 None         no effect
- *   1 ButtonEnter  cursor enters a button / clickable row
- *   2 ButtonLeave  cursor leaves a button / clickable row
- *   3 Snap         slider / list snaps to a detent
- *   4 Sliding      continuous slider drag
- *   5 SlidingEdge  slider reaches its end stop
+ *   0 None        no effect
+ *   1 ButtonEnter cursor enters a button
+ *   2 ButtonLeave cursor leaves a button
+ *   3 Snap        slider / list snaps to a detent
+ *   4 Sliding     continuous slider drag
+ *   5 SlidingEdge slider reaches its end stop
  *
- * 中文对照：0 None 无效果；1 ButtonEnter 光标进入按钮；2 ButtonLeave 光标离开按钮；
- * 3 Snap 滑杆/列表吸附；4 Sliding 拖动滑杆；5 SlidingEdge 拖到端点。
- * 本插件只丢弃 1/2（按钮 hover），保留 3/4/5（滑杆/吸附）。
- *
- * This gate only drops 1/2 (button hover). 3/4/5 (slider and snap feedback)
- * are deliberately left alone: the product promise is to remove the
- * cursor-lands-on-a-button tick, not every UI haptic.
- *
- * The flag is read on every call, so toggling it takes effect immediately with
- * no re-injection. Idempotent: a re-injection tears the previous instance down
- * first. Self-heals: either bridge may be absent at inject time or be replaced
- * later, so a slow timer re-checks it.
+ * Only 1/2 (button enter/leave) are dropped; 3/4/5 (slider and snap feedback)
+ * are deliberately left alone. The flag is read on every call, so toggling it
+ * takes effect immediately. Re-injection is idempotent, and a slow timer
+ * re-checks a bridge that was absent at inject time or got replaced later.
  *
  * The daemon owns window.__SF_UI_HAPTIC_SWITCH__.build; this script only ever
- * sets .gate.
- *
- * Plain ES5, no build step.
+ * sets .gate. Plain ES5, no build step.
  */
 (function () {
   'use strict';
@@ -162,8 +151,7 @@
   }
 
   function teardown() {
-    /* Same idea as the UI's tornDown: 已排队的 interval 回调不能在 teardown 后
-     * 重新包装 bridge，此时 NS.gate 已为 null，包装也无法再被清理。 */
+    /* A queued interval tick must not re-wrap after NS.gate is cleared. */
     stopped = true;
     if (timer) { clearInterval(timer); timer = null; }
     restore();

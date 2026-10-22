@@ -874,7 +874,6 @@ class Daemon:
         target_id: str = info.get("targetId") or ""
         if not target_id:
             return
-        # already attached, skip
         if self._session_for_target(endpoint, target_id) is not None:
             return
 
@@ -890,7 +889,6 @@ class Daemon:
                 },
             )
 
-            # register the session
             session_id = result.get("sessionId")
             if not session_id:
                 return
@@ -948,7 +946,6 @@ class Daemon:
                 self._attach_to_page_target(endpoint, info)
             return
 
-        # update related Session instance's fields
         session.title = info.get("title") or session.title
         session.url = info.get("url") or session.url
 

@@ -571,8 +571,6 @@
     return null;
   }
 
-  /* No echo: flipping writes the shared flag, tells the daemon, and repaints.
-   * The daemon only pushes to :8087, never back to :8080. */
   function setEnabled(next) {
     next = !!next;
     writeEnabled(next);

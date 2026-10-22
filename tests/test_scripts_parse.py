@@ -57,8 +57,7 @@ class ContractTests(unittest.TestCase):
             "5 SlidingEdge",
         ):
             self.assertIn(line, t)
-        self.assertIn("only drops 1/2", t)
-        self.assertIn("只丢弃 1/2", t)
+        self.assertIn("Only 1/2 (button enter/leave) are dropped", t)
 
     def test_ui_owns_the_localstorage_key(self):
         t = read(UI)
