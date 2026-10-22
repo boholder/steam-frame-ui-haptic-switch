@@ -434,6 +434,8 @@ KIND_VR = "vr"
 
 GLOBAL = "__SF_UI_HAPTIC_SWITCH__"
 BINDING = "__sfUiHapticSwitchSend"
+PAYLOAD_HI = "hi"
+PAYLOAD_HAPTIC = "haptic"
 KEY = "sf_ui_haptic_switch"
 UI_MATCH = "valve.steam.gamepadui.barpopup"
 # that very bottom menu that always appears below,
@@ -481,11 +483,11 @@ def storage_value_to_enabled(value: str | None) -> bool:
     return not (value == "0" or value == "false")
 
 
-def parse_binding_message(payload: str) -> dict[str, typing.Any] | None:
+def parse_binding_message(payload: str) -> tuple[str, bool | None] | None:
     """Parse a binding payload.
 
-    Returns ``{"kind": "hello"}``, ``{"kind": "haptic", "enabled": bool|None}``
-    or ``None`` for malformed / unknown payloads.
+    Returns ``("hi", None)``, ``("haptic", bool|None)`` or ``None`` for
+    malformed / unknown payloads.
     """
     try:
         msg = json.loads(payload)
@@ -494,16 +496,16 @@ def parse_binding_message(payload: str) -> dict[str, typing.Any] | None:
     if not isinstance(msg, dict):
         return None
 
-    kind = msg.get("c")
-    if kind == "hello":
-        return {"kind": "hello"}
-    if kind != "haptic":
+    command = msg.get("c")
+    if command == PAYLOAD_HI:
+        return PAYLOAD_HI, None
+    if command != PAYLOAD_HAPTIC:
         return None
 
     value = msg.get("v")
     if isinstance(value, bool):
-        return {"kind": "haptic", "enabled": value}
-    return {"kind": "haptic", "enabled": None}
+        return PAYLOAD_HAPTIC, value
+    return PAYLOAD_HAPTIC, None
 
 
 def is_page_type_target(info: object) -> bool:
@@ -680,8 +682,8 @@ class Session:
         self.handshake.sent(time.time())
         try:
             self.send_command("Runtime.addBinding", {"name": BINDING})
-            # Daemon._on_binding_called() will receive "hello" message
-            self.evaluate("window.%s(JSON.stringify({c:'hello'}))" % BINDING)
+            # Daemon._on_binding_called() will receive "hi" message
+            self.evaluate("window.%s(JSON.stringify({c:%s}))" % (BINDING, json.dumps(PAYLOAD_HI)))
             _debug("handshake -> %s (attempt %d)" % (self.title, self.handshake.attempts))
         except Exception as e:
             _debug("handshake send failed: %s" % e)
@@ -1014,18 +1016,19 @@ class Daemon:
                 return
 
     def _on_binding_called(self, session_id: str, payload: str) -> None:
-        msg = parse_binding_message(payload)
-        if msg is None:
+        parsed = parse_binding_message(payload)
+        if parsed is None:
             return
+        kind, enabled = parsed
         session = self.sessions.get(session_id)
-        # Session.send_handshake() will send "hello" message
-        if msg["kind"] == "hello":
+        # Session.send_handshake() will send "hi" message
+        if kind == PAYLOAD_HI:
             if session is not None and not session.handshake.ok:
                 session.handshake.ok = True
                 _debug("binding verified on %s" % session.title)
                 self._sync_state_from_steam_client()
             return
-        _debug("binding <- %s (v=%s)" % (payload[:120], msg.get("enabled")))
+        _debug("binding <- %s (v=%s)" % (payload[:120], enabled))
         self._on_switch_toggled_by_user()
 
     # -- state --------------------------------------------------------------

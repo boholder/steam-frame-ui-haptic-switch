@@ -26,18 +26,18 @@ class FlagTests(unittest.TestCase):
 
 
 class PayloadTests(unittest.TestCase):
-    def test_hello(self):
-        self.assertEqual(d.parse_binding_message('{"c":"hello"}'), {"kind": "hello"})
+    def test_hi_handshake_message(self):
+        self.assertEqual(d.parse_binding_message('{"c":"hi"}'), ("hi", None))
 
     def test_haptic_boolean(self):
-        self.assertEqual(d.parse_binding_message('{"c":"haptic","v":false}'), {"kind": "haptic", "enabled": False})
-        self.assertEqual(d.parse_binding_message('{"c":"haptic","v":true}'), {"kind": "haptic", "enabled": True})
+        self.assertEqual(d.parse_binding_message('{"c":"haptic","v":false}'), ("haptic", False))
+        self.assertEqual(d.parse_binding_message('{"c":"haptic","v":true}'), ("haptic", True))
 
     def test_haptic_without_value_is_a_hint_only(self):
-        self.assertEqual(d.parse_binding_message('{"c":"haptic"}'), {"kind": "haptic", "enabled": None})
+        self.assertEqual(d.parse_binding_message('{"c":"haptic"}'), ("haptic", None))
 
     def test_rejects_bad_or_unknown_payloads(self):
-        for raw in ("", "not json", "[]", "null", '{"c":"other"}', '{"x":1}'):
+        for raw in ("", "not json", "[]", "null", '{"c":"other"}', '{"c":"hello"}', '{"x":1}'):
             self.assertIsNone(d.parse_binding_message(raw), raw)
 
 
@@ -267,7 +267,7 @@ class SessionHandshakeTests(unittest.TestCase):
         self.assertEqual(endpoint.calls[0][1], {"name": d.BINDING})
         self.assertEqual(endpoint.calls[0][2], "sid")
 
-    def test_send_handshake_evaluates_the_hello_binding(self):
+    def test_send_handshake_evaluates_the_hi_binding(self):
         session, endpoint = self._session()
 
         session.send_handshake()
@@ -275,6 +275,7 @@ class SessionHandshakeTests(unittest.TestCase):
         self.assertEqual(session.handshake.attempts, 1)
         self.assertEqual(endpoint.calls[1][0], "evaluate")
         self.assertIn(d.BINDING, endpoint.calls[1][1])
+        self.assertIn('{c:"hi"}', endpoint.calls[1][1])
 
     def test_send_handshake_swallows_errors_but_counts_the_attempt(self):
         session, _ = self._session(fail=True)

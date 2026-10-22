@@ -66,7 +66,7 @@ T0 之后确认 `:8087` 可由 `~/.config/openvr/config/steamvr.vrsettings` 的
 | Q1 | 对账 | 仅在启动、重连、UI 页新执行上下文时读一次；无周期对账、无 watchdog |
 | Q1 | binding 载荷 | `{"c":"haptic","v":true|false}`；`v` 只是提示，实际以 localStorage 为准 |
 | Q1 | binding 名 | `__sfUiHapticSwitchSend`（注意不是 `Swtich`） |
-| Q1 | 握手 | `addBinding` 后 evaluate 一次 `{"c":"hello"}`，1 秒内等 `Runtime.bindingCalled`；失败快速重试 3 次，仍失败则尽力 teardown + `exit 1` |
+| Q1 | 握手 | `addBinding` 后 evaluate 一次 `{"c":"hi"}`，1 秒内等 `Runtime.bindingCalled`；失败快速重试 3 次，仍失败则尽力 teardown + `exit 1` |
 | Q1 | 端点缺席 | 1 秒退避重连，不退出；8087 缺席时跳过，8080 缺席时用状态文件 |
 | Q2 | 目标发现 | 每个端点一条 browser 级 WS；`Target.setDiscoverTargets` + `Target.attachToTarget {flatten:true}`；零轮询 |
 | Q3 | 8080 目标 | 保持不变：所有 page target 注 gate，`barpopup` 额外注 UI |
@@ -182,7 +182,7 @@ EOverlayHapticEffect:
 3. `Runtime.evaluate` 把 gate/UI 注入**当前文档**（build 标记幂等；addScript 只覆盖新文档）。
 4. UI target：
    - `Runtime.addBinding {name:"__sfUiHapticSwitchSend"}`；
-   - 握手：evaluate `window.__sfUiHapticSwitchSend('{"c":"hello"}')`，
+   - 握手：evaluate `window.__sfUiHapticSwitchSend('{"c":"hi"}')`，
      1 秒内等 `Runtime.bindingCalled`；
    - 失败重试 3 次（每次等 1 秒）；仍失败 → 尽力 teardown → `exit 1`。
    - `Runtime.executionContextCreated`（默认 world）：重新 addBinding + 握手 + 读一次 8080。
@@ -284,7 +284,7 @@ WantedBy=multi-user.target
 实现者先写失败测试，再实现：
 
 - **状态规范化**：`'1'`/`'0'`/`'true'`/`'false'`/缺失/垃圾值 → on/off。
-- **payload 解析**：`{"c":"haptic","v":true|false}`；忽略 `hello`/坏 JSON/其他 `c`。
+- **payload 解析**：`{"c":"haptic","v":true|false}` 解析为 on/off；`{"c":"hi"}` 只确认握手；坏 JSON / 其他 `c` 返回 None。
 - **状态文件**：缺失时默认 on；损坏时回退 on 且不崩溃；原子写路径；0600。
 - **target 分类**：`barpopup` 识别、page 过滤、端点归属。
 - **CLI 解析**：两个端口默认值、`--status`、`--verbose`。
