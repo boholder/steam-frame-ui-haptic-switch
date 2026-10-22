@@ -480,6 +480,57 @@ class PushStateTests(unittest.TestCase):
                 self.assertEqual(expressions, [f'localStorage.setItem("{d.KEY}", {literal})'])
 
 
+class PushPerEndpointTests(unittest.TestCase):
+    class Page:
+        def __init__(self, endpoint, url="https://steamloopback.host/dashboard"):
+            self.endpoint = endpoint
+            self.url = url
+            self.title = "page"
+            self.evaluations = []
+
+        def evaluate(self, expr, timeout=10.0):
+            self.evaluations.append(expr)
+
+    def _daemon(self, tmp):
+        return d.Daemon(8080, 8087, {"gate": "g", "ui": "u"}, os.path.join(tmp, "state.json"))
+
+    def test_the_value_is_written_once_per_endpoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp)
+            vr = daemon.endpoints[1]
+            first = self.Page(vr)
+            second = self.Page(vr)
+            daemon.sessions.update({"first": first, "second": second})
+
+            daemon._push_state_to_all_vr_sessions()
+
+            self.assertEqual(len(first.evaluations), 1)
+            self.assertEqual(second.evaluations, [])
+
+    def test_pages_with_an_opaque_origin_are_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp)
+            vr = daemon.endpoints[1]
+            opaque = self.Page(vr, url="data:text/html,x")
+            shared = self.Page(vr)
+            daemon.sessions.update({"opaque": opaque, "shared": shared})
+
+            daemon._push_state_to_all_vr_sessions()
+
+            self.assertEqual(opaque.evaluations, [])
+            self.assertEqual(len(shared.evaluations), 1)
+
+    def test_steam_sessions_are_never_pushed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp)
+            steam_page = self.Page(daemon.endpoints[0])
+            daemon.sessions["steam"] = steam_page
+
+            daemon._push_state_to_all_vr_sessions()
+
+            self.assertEqual(steam_page.evaluations, [])
+
+
 class StatusTests(unittest.TestCase):
     def test_ui_is_only_reported_for_the_steam_endpoint(self):
         targets = [

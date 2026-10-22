@@ -1021,9 +1021,13 @@ class Daemon:
     # -- state --------------------------------------------------------------
 
     @staticmethod
-    def _can_read_local_storage_flag(session: Session) -> bool:
+    def _shares_dashboard_storage(session: Session) -> bool:
         """A data: utility page has an opaque origin, not the shared storage."""
-        return session.steam and not (session.url or "").startswith("data:")
+        return not (session.url or "").startswith("data:")
+
+    @staticmethod
+    def _can_read_local_storage_flag(session: Session) -> bool:
+        return session.steam and Daemon._shares_dashboard_storage(session)
 
     def _choose_steam_session_for_flag_read(self) -> Session | None:
         # The QAM page is always the best place to read the flag.
@@ -1087,9 +1091,15 @@ class Daemon:
         self._apply_enabled_and_push_to_vr(enabled, "switch")
 
     def _push_state_to_all_vr_sessions(self) -> None:
-        for session in list(self.sessions.values()):
-            if session.vr:
-                self._push_state_to(session)
+        # localStorage is per origin: one write per endpoint reaches every
+        # page that shares it. data: pages have an opaque origin and are skipped.
+        for endpoint in self.endpoints:
+            if endpoint.kind != KIND_VR:
+                continue
+            for session in self.sessions.values():
+                if session.endpoint is endpoint and self._shares_dashboard_storage(session):
+                    self._push_state_to(session)
+                    break
 
     def _push_state_to(self, session: Session) -> None:
         value = json.dumps(self.enabled)
