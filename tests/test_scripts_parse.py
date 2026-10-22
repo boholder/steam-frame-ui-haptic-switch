@@ -18,6 +18,25 @@ def read(path):
         return f.read()
 
 
+def function_body(src, name):
+    """Return the balanced body of `function name(...) { ... }`."""
+    match = re.search(r"function %s\([^)]*\) \{" % re.escape(name), src)
+    if match is None:
+        return None
+    depth = 1
+    index = match.end()
+    while index < len(src):
+        char = src[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return src[match.end() : index]
+        index += 1
+    return None
+
+
 class ParseTests(unittest.TestCase):
     @unittest.skipIf(esprima is None, "esprima not installed")
     def test_gate_parses(self):
@@ -58,6 +77,13 @@ class ContractTests(unittest.TestCase):
         ):
             self.assertIn(line, t)
         self.assertIn("Only 1/2 (button enter/leave) are dropped", t)
+
+    def test_ui_has_deep_internal_modules(self):
+        t = read(UI)
+        for name in ("createToggleLook", "createTemplateStore", "createQamBody", "createGesture", "createUi"):
+            self.assertIn("function %s(" % name, t)
+        self.assertIn("createUi(window).start()", t)
+        self.assertIn("fromTemplate", t)
 
     def test_ui_owns_the_localstorage_key(self):
         t = read(UI)
@@ -101,13 +127,10 @@ class ContractTests(unittest.TestCase):
         t = read(UI)
         self.assertIn("tornDown", t)
         self.assertIn("clearTimeout(scheduleTimer)", t)
-        self.assertRegex(
-            t,
-            re.compile(
-                r"function schedule\(\).*?if \(tornDown\) return;.*?sync\(\)",
-                re.S,
-            ),
-        )
+        body = function_body(t, "schedule")
+        self.assertIsNotNone(body)
+        self.assertIn("if (tornDown) return;", body)
+        self.assertIn("sync()", body)
 
     def test_ui_strips_ids_from_cloned_rows(self):
         t = read(UI)
@@ -115,9 +138,9 @@ class ContractTests(unittest.TestCase):
         self.assertIn("querySelectorAll('[id]')", t)
         self.assertIn("removeAttribute('id')", t)
         for name in ("toggleRow", "render"):
-            m = re.search(r"function %s\([^)]*\) \{(.*?)\n  \}" % name, t, re.S)
-            self.assertIsNotNone(m, name)
-            self.assertIn("stripIds(row)", m.group(1), name)
+            body = function_body(t, name)
+            self.assertIsNotNone(body, name)
+            self.assertIn("stripIds(row)", body, name)
 
     def test_ui_adds_the_native_separator(self):
         t = read(UI)
@@ -128,9 +151,9 @@ class ContractTests(unittest.TestCase):
         self.assertNotIn("previousElementSibling", t)
         self.assertIn("setAttribute('role', 'separator')", t)
         self.assertIn("sf_ui_haptic_switch_tpl_v2", t)
-        m = re.search(r"function render\(\) \{(.*?)\n  \}", t, re.S)
-        self.assertIsNotNone(m)
-        self.assertIn("ensureSeparator()", m.group(1))
+        body = function_body(t, "render")
+        self.assertIsNotNone(body)
+        self.assertIn("ensureSeparator()", body)
 
     def test_ui_matches_the_native_row_gap(self):
         t = read(UI)
@@ -145,11 +168,17 @@ class ContractTests(unittest.TestCase):
         self.assertIn("extra = diff[0]", t)
         self.assertNotIn("diff.join(' ')", t)
 
+    def test_ui_skips_redundant_toggle_repaints(self):
+        t = read(UI)
+        for name in ("classAdapter", "htmlAdapter"):
+            body = function_body(t, name)
+            self.assertIsNotNone(body, name)
+            self.assertIn("getAttribute(STATE_ATTR)", body, name)
+
     def test_ui_throttles_before_marking_a_pointerdown(self):
         t = read(UI)
-        m = re.search(r"function flip\(ev\) \{(.*?)\n    \}", t, re.S)
-        self.assertIsNotNone(m)
-        body = m.group(1)
+        body = function_body(t, "flip")
+        self.assertIsNotNone(body)
         pointer = re.search(r"if \(ev\.type === 'pointerdown'\) \{(.*?)\}", body, re.S)
         self.assertIsNotNone(pointer)
         self.assertNotIn("preventDefault", pointer.group(1))

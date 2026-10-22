@@ -23,108 +23,21 @@
   if (prev && prev.teardown) { try { prev.teardown(); } catch (e) {} }
 
   var ROW_ID = 'sf_ui_haptic_switch_row';
-  var LOOK_STYLE_ID = 'sf_ui_haptic_switch_look';
   var KEY = 'sf_ui_haptic_switch';
   var BINDING = '__sfUiHapticSwitchSend';
-  var CACHE_KEY = 'sf_ui_haptic_switch_tpl_v2';
-  var BODY_KEY = 'sf_ui_haptic_switch_body_v1';
   var STATE_ATTR = 'data-sf-ui-haptic-state';
   var SECTION_ATTR = 'data-sf-ui-haptic-section';
+  var LOOK_STYLE_ID = 'sf_ui_haptic_switch_look';
 
-  var mounted = false;    /* our row exists in the DOM */
-  var tpl = null;
-  var observer = null;
-  var scheduled = false;
-  var scheduleTimer = null;
-  var tornDown = false;
-  var cleanups = [];
-  var lastFlip = 0;
-
-  function log() {
-    try {
-      console.log.apply(console, ['[sf-ui-haptic-ui]'].concat(
-        Array.prototype.slice.call(arguments)));
-    } catch (e) {}
+  function classList(el) {
+    return String((el && el.className) || '').split(/\s+/).filter(Boolean);
   }
 
-  /* Shared contract with the gate: off only when explicitly '0'/'false'. */
-  function readEnabled() {
-    try {
-      var v = localStorage.getItem(KEY);
-      return !(v === '0' || v === 'false');
-    } catch (e) { return true; }
+  function nodeFromHTML(doc, html) {
+    var box = doc.createElement('div');
+    box.innerHTML = html;
+    return box.firstElementChild;
   }
-
-  function writeEnabled(on) {
-    try { localStorage.setItem(KEY, on ? 'true' : 'false'); } catch (e) {}
-  }
-
-  /* Notify the daemon. The value it reads from localStorage is authoritative;
-   * this payload is only a "something changed" hint. A missing binding (daemon
-   * restarting) is fine: the write above already happened, and the daemon
-   * re-syncs from localStorage on reconnect. */
-  function sendEnabled(on) {
-    try {
-      var fn = window[BINDING];
-      if (typeof fn === 'function') {
-        fn(JSON.stringify({ c: 'haptic', v: !!on }));
-      }
-    } catch (e) {}
-  }
-
-  /* ------------------------------------------------------------------ */
-  /* label localization                                                  */
-  /* ------------------------------------------------------------------ */
-
-  /* The QAM renders in the client's language, which follows the browser
-   * locale. Unsupported locales fall back to English. */
-  var LABELS = {
-    en: 'Controller UI Haptic',
-    'zh-CN': '控制器界面震动',
-    'zh-TW': '控制器介面震動',
-    ja: 'コントローラー UI 振動'
-  };
-
-  function languageTag(value) {
-    if (!value) return null;
-    var tag = String(value).toLowerCase().replace(/_/g, '-');
-    if (tag.indexOf('zh') === 0) {
-      /* zh-Hant, zh-TW, zh-HK and zh-MO all read Traditional. */
-      return /^zh-(hant|tw|hk|mo)/.test(tag) ? 'zh-TW' : 'zh-CN';
-    }
-    if (tag.indexOf('ja') === 0) return 'ja';
-    if (tag.indexOf('en') === 0) return 'en';
-    return null;
-  }
-
-  function detectLang() {
-    var candidates = [];
-    try {
-      if (navigator.languages && navigator.languages.length) {
-        candidates = candidates.concat(
-          Array.prototype.slice.call(navigator.languages));
-      }
-    } catch (e) {}
-    try { if (navigator.language) candidates.push(navigator.language); } catch (e) {}
-    /* The client may localize the DOM even when the browser locale differs. */
-    try {
-      var root = document.documentElement;
-      if (root && root.lang) candidates.push(root.lang);
-    } catch (e) {}
-    for (var i = 0; i < candidates.length; i++) {
-      var lang = languageTag(candidates[i]);
-      if (lang) return lang;
-    }
-    return 'en';
-  }
-
-  function labelText() {
-    return LABELS[detectLang()] || LABELS.en;
-  }
-
-  /* ------------------------------------------------------------------ */
-  /* icons                                                               */
-  /* ------------------------------------------------------------------ */
 
   function svg(inner, vb) {
     return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="' +
@@ -150,462 +63,314 @@
       '0 0 24 24'
   );
 
-  /* ------------------------------------------------------------------ */
-  /* DOM discovery                                                       */
-  /* ------------------------------------------------------------------ */
+  /* How an open/closed checkbox is drawn. Two adapters sit behind the same
+   * interface: the native single-class fast path and the HTML fallback. */
+  function createToggleLook(doc) {
+    var KNOB_ON = 'translateX(16px)';
+    var KNOB_OFF = 'translateX(0px)';
+    var RAIL_ON = 'rgb(26, 159, 255)';
+    var RAIL_OFF = 'hsla(0, 0%, 100%, 0.15)';
 
-  function menuRoot() { return document.getElementById('QuickAccess-Menu'); }
-
-  function parts() {
-    var root = menuRoot();
-    if (!root) return null;
-    /* the tablist only proves the menu has rendered; we inject into its tab
-     * bodies, not into the tab bar */
-    if (!root.querySelector('[role="tablist"]')) return null;
-    var bodies = [].slice.call(
-      root.querySelectorAll('[id^="quickaccess_content_"]'));
-    if (!bodies.length) return null;
-    return { bodies: bodies };
-  }
-
-  function rendered(el) {
-    if (!el) return false;
-    var r = el.getBoundingClientRect();
-    return r.width > 0 && r.height > 0;
-  }
-
-  function classList(el) {
-    return String((el && el.className) || '').split(/\s+/).filter(Boolean);
-  }
-
-  function mine(el) {
-    return !!(el && el.closest && el.closest('#' + ROW_ID));
-  }
-
-  /* Which quickaccess_content_* body carries the Quick Settings controls?  The
-   * body with the most sliders/checkboxes is the settings page.  The pick is
-   * cached so it stays stable while tabs are switched (an unrendered body has
-   * no controls and would otherwise lose the vote). */
-  function bodyControls(body) {
-    return (body.querySelectorAll('[role="slider"]').length * 2) +
-           (body.querySelectorAll('[role="checkbox"]').length);
-  }
-
-  function loadBodyId() {
-    try { return sessionStorage.getItem(BODY_KEY) || null; } catch (e) { return null; }
-  }
-
-  function targetBody(p) {
-    var saved = loadBodyId();
-    if (saved) {
-      var el = document.getElementById(saved);
-      if (el) return el;
-      try { sessionStorage.removeItem(BODY_KEY); } catch (e) {}
+    function ensureLookStyle() {
+      if (doc.getElementById(LOOK_STYLE_ID)) return;
+      var st = doc.createElement('style');
+      st.id = LOOK_STYLE_ID;
+      st.textContent = '#' + ROW_ID +
+        ' [role="checkbox"] > div:first-child::before{content:none !important}';
+      (doc.head || doc.documentElement).appendChild(st);
     }
-    var best = null, bestScore = 0;
-    p.bodies.forEach(function (b) {
-      var s = bodyControls(b);
-      /* the Quick Settings body is quickaccess_content_4; nudge it ahead when
-       * the scores are otherwise close */
-      if (/_4$/.test(b.id)) s += 1;
-      if (s > bestScore) { bestScore = s; best = b; }
-    });
-    if (!best || bestScore < 2) return null;
-    try { sessionStorage.setItem(BODY_KEY, best.id); } catch (e) {}
-    return best;
-  }
 
-  /* ------------------------------------------------------------------ */
-  /* template harvesting (styling by cloning, not by CSS)                */
-  /* ------------------------------------------------------------------ */
-
-  /* A stock toggle shows its state purely through one extra class on the
-   * checkbox element: the knob only slides and the track only turns blue while
-   * that class is present (the stylesheet has no [aria-checked] rule at all).
-   * A clone therefore keeps whatever state it was cloned in forever.  Harvest
-   * that class by diffing a checked against an unchecked toggle. */
-  function harvestToggleStates(scope) {
-    var boxes = [].slice.call(
-      (scope || document).querySelectorAll('[role="checkbox"]'))
-      .filter(function (b) { return !mine(b); });
-    var on = null, off = null;
-    for (var i = 0; i < boxes.length; i++) {
-      var checked = boxes[i].getAttribute('aria-checked') === 'true';
-      if (checked && !on) on = boxes[i];
-      if (!checked && !off) off = boxes[i];
-      if (on && off) break;
+    function pinToggleLook(cb, on) {
+      if (!cb || !cb.children || cb.children.length !== 2) return;
+      ensureLookStyle();
+      var rail = cb.children[0], knob = cb.children[1];
+      rail.style.transition = 'none';
+      rail.style.background = on ? RAIL_ON : RAIL_OFF;
+      knob.style.transition = 'none';
+      knob.style.transform = on ? KNOB_ON : KNOB_OFF;
     }
-    if (!on && !off) return null;
-    var extra = null;
-    if (on && off) {
-      var offSet = classList(off);
-      var diff = classList(on).filter(function (c) {
-        return c !== 'gpfocus' && offSet.indexOf(c) < 0;
-      });
-      if (diff.length === 1) extra = diff[0];
+
+    function finishToggle(cb, on) {
+      cb.setAttribute(STATE_ATTR, on ? 'true' : 'false');
+      cb.setAttribute('aria-checked', on ? 'true' : 'false');
+      pinToggleLook(cb, on);
+      return cb;
     }
-    return {
-      toggleOnExtra: extra,
-      toggleOnHTML: on ? on.outerHTML : null,
-      toggleOffHTML: off ? off.outerHTML : null
-    };
-  }
 
-  /* the first direct child of <scope> that contains <probe> */
-  function childWith(scope, probe) {
-    var cs = [].slice.call(scope.children);
-    for (var i = 0; i < cs.length; i++) {
-      if (cs[i].querySelector(probe)) return cs[i];
+    function classAdapter(extra) {
+      return {
+        apply: function (cb, on) {
+          if (cb.getAttribute(STATE_ATTR) === (on ? 'true' : 'false')) {
+            return finishToggle(cb, on);
+          }
+          var cls = classList(cb).filter(function (c) { return c !== extra; });
+          if (on) cls.push(extra);
+          cb.className = cls.join(' ');
+          return finishToggle(cb, on);
+        }
+      };
     }
-    return null;
+
+    function htmlAdapter(onHTML, offHTML) {
+      return {
+        apply: function (cb, on) {
+          if (cb.getAttribute(STATE_ATTR) === (on ? 'true' : 'false')) {
+            return finishToggle(cb, on);
+          }
+          var html = on ? onHTML : offHTML;
+          if (!html) return finishToggle(cb, on);
+          var fresh = nodeFromHTML(doc, html);
+          if (!fresh) return cb;
+          fresh.removeAttribute('aria-labelledby');
+          var label = cb.getAttribute('aria-label');
+          if (label) fresh.setAttribute('aria-label', label);
+          if (cb.parentNode) cb.parentNode.replaceChild(fresh, cb);
+          return finishToggle(fresh, on);
+        }
+      };
+    }
+
+    function fromTemplate(tpl) {
+      if (tpl && tpl.toggleOnExtra) return classAdapter(tpl.toggleOnExtra);
+      if (tpl && tpl.toggleOnHTML && tpl.toggleOffHTML) {
+        return htmlAdapter(tpl.toggleOnHTML, tpl.toggleOffHTML);
+      }
+      return { apply: finishToggle };
+    }
+
+    return { fromTemplate: fromTemplate };
   }
 
-  function grabTemplate(body) {
-    if (!body) return null;
-    var probe = '[role="checkbox"]';
+  /* Template harvesting and its sessionStorage cache. The caller only asks for
+   * the current template or for one harvested from the visible QAM bodies. */
+  function createTemplateStore(doc, win) {
+    var CACHE_KEY = 'sf_ui_haptic_switch_tpl_v2';
+    var tpl = null;
 
-    /* body > section > row, mirroring the stock layout: the section is the
-     * group wrapper (reused for spacing), the row is what we clone. */
-    var section = childWith(body, probe);
-    if (!section) return null;
-    var row = childWith(section, probe) || section;
-    if (mine(row)) return null;
+    function mine(el) {
+      return !!(el && el.closest && el.closest('#' + ROW_ID));
+    }
 
-    var ts = harvestToggleStates(body) || harvestToggleStates(document) || {};
-    /* The native divider is a sibling element, not a border or pseudo-element.
-     * Capture its outerHTML so the hashed class stays in sync with the build. */
-    var sep = body.querySelector('[role="separator"]') ||
-              document.querySelector('#QuickAccess-Menu [role="separator"]');
+    /* A stock toggle shows its state purely through one extra class on the
+     * checkbox element: the knob only slides and the track only turns blue
+     * while that class is present (the stylesheet has no [aria-checked] rule
+     * at all). A clone therefore keeps whatever state it was cloned in
+     * forever. Harvest that class by diffing checked against unchecked. */
+    function harvestToggleStates(scope) {
+      var boxes = [].slice.call(
+        (scope || doc).querySelectorAll('[role="checkbox"]'))
+        .filter(function (b) { return !mine(b); });
+      var on = null, off = null;
+      for (var i = 0; i < boxes.length; i++) {
+        var checked = boxes[i].getAttribute('aria-checked') === 'true';
+        if (checked && !on) on = boxes[i];
+        if (!checked && !off) off = boxes[i];
+        if (on && off) break;
+      }
+      if (!on && !off) return null;
+      var extra = null;
+      if (on && off) {
+        var offSet = classList(off);
+        var diff = classList(on).filter(function (c) {
+          return c !== 'gpfocus' && offSet.indexOf(c) < 0;
+        });
+        if (diff.length === 1) extra = diff[0];
+      }
+      return {
+        toggleOnExtra: extra,
+        toggleOnHTML: on ? on.outerHTML : null,
+        toggleOffHTML: off ? off.outerHTML : null
+      };
+    }
 
-    return {
-      sectionCls: section.className || '',
-      toggleRowHTML: row.outerHTML,
-      separatorHTML: sep ? sep.outerHTML : null,
-      separatorCls: sep ? String(sep.className) : '',
-      toggleOnExtra: ts.toggleOnExtra,
-      toggleOnHTML: ts.toggleOnHTML,
-      toggleOffHTML: ts.toggleOffHTML
-    };
-  }
+    function childWith(scope, probe) {
+      var cs = [].slice.call(scope.children);
+      for (var i = 0; i < cs.length; i++) {
+        if (cs[i].querySelector(probe)) return cs[i];
+      }
+      return null;
+    }
 
-  /* Valve renders a tab's rows only while that tab is selected, so if the Quick
-   * Settings page was never opened there is nothing to clone from it.  Borrow a
-   * row from whichever body IS currently rendered so the switch can be built at
-   * all; the styles are identical across tabs. */
-  function grabTemplateAny(p) {
-    for (var i = 0; i < p.bodies.length; i++) {
-      if (rendered(p.bodies[i])) {
-        var t = grabTemplate(p.bodies[i]);
+    function grab(body) {
+      if (!body) return null;
+      var probe = '[role="checkbox"]';
+
+      /* body > section > row, mirroring the stock layout: the section is the
+       * group wrapper (reused for spacing), the row is what we clone. */
+      var section = childWith(body, probe);
+      if (!section) return null;
+      var row = childWith(section, probe) || section;
+      if (mine(row)) return null;
+
+      var ts = harvestToggleStates(body) || harvestToggleStates(doc) || {};
+      /* The native divider is a sibling element, not a border or pseudo-element.
+       * Capture its outerHTML so the hashed class stays in sync with the build. */
+      var sep = body.querySelector('[role="separator"]') ||
+                doc.querySelector('#QuickAccess-Menu [role="separator"]');
+
+      return {
+        sectionCls: section.className || '',
+        toggleRowHTML: row.outerHTML,
+        separatorHTML: sep ? sep.outerHTML : null,
+        separatorCls: sep ? String(sep.className) : '',
+        toggleOnExtra: ts.toggleOnExtra,
+        toggleOnHTML: ts.toggleOnHTML,
+        toggleOffHTML: ts.toggleOffHTML
+      };
+    }
+
+    /* Valve renders a tab's rows only while that tab is selected, so if the
+     * Quick Settings page was never opened there is nothing to clone from it.
+     * Borrow a row from whichever body IS currently rendered. */
+    function grabAny(bodies) {
+      for (var i = 0; i < bodies.length; i++) {
+        var t = grab(bodies[i]);
         if (t) return t;
       }
-    }
-    return null;
-  }
-
-  /* Valve rehashes class names between client builds, so a cached template is
-   * only reusable while its classes still exist in the stylesheets. */
-  function selectorKnown(cls) {
-    if (!cls) return false;
-    var sheets = document.styleSheets;
-    for (var i = 0; i < sheets.length; i++) {
-      var rules;
-      try { rules = sheets[i].cssRules; } catch (e) { continue; }
-      if (!rules) continue;
-      for (var j = 0; j < rules.length; j++) {
-        var sel = rules[j].selectorText;
-        if (sel && sel.indexOf(cls) >= 0) return true;
-      }
-    }
-    return false;
-  }
-
-  function saveTemplates() {
-    if (!tpl) return;
-    try {
-      sessionStorage.setItem(CACHE_KEY, JSON.stringify({ tpl: tpl }));
-    } catch (e) {}
-  }
-
-  function loadTemplates() {
-    var raw;
-    try { raw = sessionStorage.getItem(CACHE_KEY); } catch (e) { return null; }
-    if (!raw) return null;
-    var obj;
-    try { obj = JSON.parse(raw); } catch (e) { return null; }
-    if (!obj || !obj.tpl) return null;
-    var t = obj.tpl;
-    if (!t.toggleOnExtra && !(t.toggleOnHTML && t.toggleOffHTML)) return null;
-    if (t.toggleOnExtra && !selectorKnown(t.toggleOnExtra)) {
-      try { sessionStorage.removeItem(CACHE_KEY); } catch (e) {}
       return null;
     }
-    if (t.separatorCls && !selectorKnown(t.separatorCls)) {
-      try { sessionStorage.removeItem(CACHE_KEY); } catch (e) {}
-      return null;
-    }
-    return t;
-  }
 
-  function nodeFromHTML(html) {
-    var box = document.createElement('div');
-    box.innerHTML = html;
-    return box.firstElementChild;
-  }
-
-  /* ------------------------------------------------------------------ */
-  /* row construction                                                    */
-  /* ------------------------------------------------------------------ */
-
-  function labelBoxOf(row) {
-    return row.querySelector('[id$="_Label"]') || row.querySelector('div > div');
-  }
-
-  /* A clone carries the stock row's descendant ids (e.g. ..._Label), which
-   * would then collide with the original row. Strip them; no code needs them. */
-  function stripIds(row) {
-    var ids = row.querySelectorAll('[id]');
-    for (var i = 0; i < ids.length; i++) ids[i].removeAttribute('id');
-  }
-
-  function setLabel(row, text) {
-    var box = labelBoxOf(row);
-    if (!box) return null;
-    var nodes = [].slice.call(box.childNodes);
-    nodes.forEach(function (n) {
-      if (n.nodeType === 3 || (n.nodeType === 1 && n.tagName !== 'DIV')) {
-        box.removeChild(n);
+    function selectorKnown(cls) {
+      if (!cls) return false;
+      var sheets = doc.styleSheets;
+      for (var i = 0; i < sheets.length; i++) {
+        var rules;
+        try { rules = sheets[i].cssRules; } catch (e) { continue; }
+        if (!rules) continue;
+        for (var j = 0; j < rules.length; j++) {
+          var sel = rules[j].selectorText;
+          if (sel && sel.indexOf(cls) >= 0) return true;
+        }
       }
-    });
-    box.appendChild(document.createTextNode(text));
-    return box;
-  }
-
-  function setIcon(row, svgText) {
-    var box = labelBoxOf(row);
-    if (!box) return;
-    var holder = box.firstElementChild;
-    if (holder && holder.querySelector('svg')) holder.innerHTML = svgText;
-  }
-
-  function makeSeparator() {
-    if (tpl && tpl.separatorHTML) {
-      var el = nodeFromHTML(tpl.separatorHTML);
-      if (el) return el;
+      return false;
     }
-    var d = document.createElement('div');
-    d.setAttribute('role', 'separator');
-    d.style.height = '1px';
-    d.style.background = 'rgba(255, 255, 255, 0.1)';
-    return d;
-  }
 
-  /* React may drop the sibling while keeping our row; restore it after the row. */
-  function ensureSeparator() {
-    var row = document.getElementById(ROW_ID);
-    if (!row || !row.parentElement) return;
-    var next = row.nextElementSibling;
-    if (next && next.getAttribute('role') === 'separator') return;
-    row.parentElement.insertBefore(makeSeparator(), row.nextSibling);
-  }
-
-  /* The stock switch is drawn entirely by CSS: the knob slides via a transform
-   * and the track turns blue via a ::before. Both animate on `transition`, and a
-   * transition only advances while the page is actually composited -- the popup
-   * is throttled whenever nobody is looking at it, and then the switch looks
-   * like it never reacts. So the look is also pinned inline. */
-  var KNOB_ON = 'translateX(16px)';
-  var KNOB_OFF = 'translateX(0px)';
-  var RAIL_ON = 'rgb(26, 159, 255)';
-  var RAIL_OFF = 'hsla(0, 0%, 100%, 0.15)';
-
-  function ensureLookStyle() {
-    if (document.getElementById(LOOK_STYLE_ID)) return;
-    var st = document.createElement('style');
-    st.id = LOOK_STYLE_ID;
-    st.textContent = '#' + ROW_ID +
-      ' [role="checkbox"] > div:first-child::before{content:none !important}';
-    (document.head || document.documentElement).appendChild(st);
-  }
-
-  function pinToggleLook(cb, on) {
-    if (!cb || !cb.children || cb.children.length !== 2) return;
-    ensureLookStyle();
-    var rail = cb.children[0], knob = cb.children[1];
-    rail.style.transition = 'none';
-    rail.style.background = on ? RAIL_ON : RAIL_OFF;
-    knob.style.transition = 'none';
-    knob.style.transform = on ? KNOB_ON : KNOB_OFF;
-  }
-
-  function finishToggle(cb, on) {
-    cb.setAttribute(STATE_ATTR, on ? 'true' : 'false');
-    cb.setAttribute('aria-checked', on ? 'true' : 'false');
-    pinToggleLook(cb, on);
-    return cb;
-  }
-
-  function applyToggleLook(cb, on) {
-    if (!cb || !tpl) return cb;
-    var want = on ? 'true' : 'false';
-    if (cb.getAttribute(STATE_ATTR) === want) {
-      return finishToggle(cb, on);
+    function save() {
+      if (!tpl) return;
+      try { win.sessionStorage.setItem(CACHE_KEY, JSON.stringify({ tpl: tpl })); }
+      catch (e) {}
     }
-    if (tpl.toggleOnExtra) {
-      var cls = classList(cb).filter(function (c) { return c !== tpl.toggleOnExtra; });
-      if (on) cls.push(tpl.toggleOnExtra);
-      cb.className = cls.join(' ');
-      return finishToggle(cb, on);
+
+    function invalidate() {
+      tpl = null;
+      try { win.sessionStorage.removeItem(CACHE_KEY); } catch (e) {}
     }
-    var html = on ? tpl.toggleOnHTML : tpl.toggleOffHTML;
-    if (!html) {
-      return finishToggle(cb, on);
-    }
-    var fresh = nodeFromHTML(html);
-    if (!fresh) return cb;
-    fresh.removeAttribute('aria-labelledby');
-    var label = cb.getAttribute('aria-label');
-    if (label) fresh.setAttribute('aria-label', label);
-    if (cb.parentNode) cb.parentNode.replaceChild(fresh, cb);
-    return finishToggle(fresh, on);
-  }
 
-  function toggleRow(label, icon) {
-    var row = nodeFromHTML(tpl.toggleRowHTML);
-    if (!row) return null;
-    row.id = ROW_ID;
-    row.removeAttribute('aria-labelledby');
-    setLabel(row, label);
-    setIcon(row, icon);
-    var cb = row.querySelector('[role="checkbox"]');
-    if (cb) {
-      cb.removeAttribute('aria-labelledby');
-      cb.setAttribute('aria-label', label);
-      applyToggleLook(cb, readEnabled());
-    }
-    stripIds(row);
-    return row;
-  }
-
-  /* ------------------------------------------------------------------ */
-  /* mount / render                                                      */
-  /* ------------------------------------------------------------------ */
-
-  function removeSections() {
-    var sections = [].slice.call(
-      document.querySelectorAll('[' + SECTION_ATTR + ']'));
-    sections.forEach(function (el) {
-      if (el.parentNode) el.parentNode.removeChild(el);
-    });
-  }
-
-  function mount() {
-    if (tornDown) return false;
-    var p = parts();
-    if (!p) return false;
-    var body = targetBody(p);
-    if (!body) return false;
-
-    if (!tpl) {
-      tpl = grabTemplate(body) || grabTemplateAny(p);
-      if (tpl) saveTemplates();
-    }
-    if (!tpl) return false;
-
-    removeSections();
-    var existing = document.getElementById(ROW_ID);
-    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
-
-    var row = toggleRow(labelText(), ICON_HAPTIC);
-    if (!row) return false;
-
-    /* Native sections are 24px apart, but rows inside a section touch. Pull
-     * our section up by the previous section's bottom margin so the switch
-     * sits as close to the row above as two native rows do. */
-    var prevSection = body.lastElementChild;
-    var host = body;
-    if (tpl.sectionCls) {
-      var sec = document.createElement('div');
-      sec.className = tpl.sectionCls;
-      sec.setAttribute(SECTION_ATTR, '');
-      if (prevSection) {
-        var gap = parseFloat(getComputedStyle(prevSection).marginBottom) || 0;
-        if (gap) sec.style.marginTop = '-' + gap + 'px';
+    function load() {
+      var raw;
+      try { raw = win.sessionStorage.getItem(CACHE_KEY); } catch (e) { return null; }
+      if (!raw) return null;
+      var obj;
+      try { obj = JSON.parse(raw); } catch (e) { return null; }
+      if (!obj || !obj.tpl) return null;
+      var t = obj.tpl;
+      if (!t.toggleOnExtra && !(t.toggleOnHTML && t.toggleOffHTML)) return null;
+      if (t.toggleOnExtra && !selectorKnown(t.toggleOnExtra)) {
+        invalidate();
+        return null;
       }
-      sec.appendChild(row);
-      sec.appendChild(makeSeparator());
-      host = sec;
+      if (t.separatorCls && !selectorKnown(t.separatorCls)) {
+        invalidate();
+        return null;
+      }
+      tpl = t;
+      return tpl;
     }
-    body.appendChild(host);
 
-    mounted = true;
-    log('switch mounted into ' + body.id);
-    return true;
-  }
-
-  function render() {
-    if (!mounted) return;
-    ensureSeparator();
-    var cb = liveCheckbox();
-    if (cb) applyToggleLook(cb, readEnabled());
-    var row = document.getElementById(ROW_ID);
-    if (row) stripIds(row);
-  }
-
-  function sync() {
-    if (tornDown || !parts()) return;
-    /* (Re)mount when our row vanished (tab switch / React re-render). */
-    if (!document.getElementById(ROW_ID)) {
-      mount();
-    } else {
-      render();
+    function harvest(body, bodies) {
+      if (!tpl) {
+        tpl = grab(body) || grabAny(bodies);
+        if (tpl) save();
+      }
+      return tpl;
     }
+
+    return {
+      load: load,
+      current: function () { return tpl; },
+      harvest: harvest,
+      save: save,
+      invalidate: invalidate,
+      reset: function () { tpl = null; }
+    };
   }
 
-  function schedule() {
-    if (tornDown || scheduled) return;
-    scheduled = true;
-    scheduleTimer = setTimeout(function () {
-      scheduleTimer = null;
-      scheduled = false;
-      if (tornDown) return;
-      try { sync(); } catch (e) { log('sync error', e); }
-    }, 60);
+  /* Which Quick Settings body is the right one, and which bodies are visible?
+   * The body id is the only persisted part; the rest is recomputed. */
+  function createQamBody(doc, win) {
+    var BODY_KEY = 'sf_ui_haptic_switch_body_v1';
+
+    function menuRoot() { return doc.getElementById('QuickAccess-Menu'); }
+
+    function parts() {
+      var root = menuRoot();
+      if (!root) return null;
+      if (!root.querySelector('[role="tablist"]')) return null;
+      var bodies = [].slice.call(
+        root.querySelectorAll('[id^="quickaccess_content_"]'));
+      if (!bodies.length) return null;
+      return { bodies: bodies };
+    }
+
+    function rendered(el) {
+      if (!el) return false;
+      var r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    }
+
+    function bodyControls(body) {
+      return (body.querySelectorAll('[role="slider"]').length * 2) +
+             (body.querySelectorAll('[role="checkbox"]').length);
+    }
+
+    function loadBodyId() {
+      try { return win.sessionStorage.getItem(BODY_KEY) || null; }
+      catch (e) { return null; }
+    }
+
+    function pick(p) {
+      var bodyId = loadBodyId();
+      if (bodyId) {
+        var saved = doc.getElementById(bodyId);
+        if (saved) return saved;
+        try { win.sessionStorage.removeItem(BODY_KEY); } catch (e) {}
+      }
+      var best = null, bestScore = 0;
+      p.bodies.forEach(function (b) {
+        var s = bodyControls(b);
+        /* the Quick Settings body is quickaccess_content_4; nudge it ahead
+         * when the scores are otherwise close */
+        if (/_4$/.test(b.id)) s += 1;
+        if (s > bestScore) { bestScore = s; best = b; }
+      });
+      if (!best || bestScore < 2) return null;
+      try { win.sessionStorage.setItem(BODY_KEY, best.id); } catch (e) {}
+      return best;
+    }
+
+    return {
+      parts: parts,
+      pick: pick,
+      visibleBodies: function (p) { return p.bodies.filter(rendered); }
+    };
   }
 
-  function startObserver() {
-    if (observer) return;
-    observer = new MutationObserver(schedule);
-    observer.observe(document.body || document.documentElement,
-                     { childList: true, subtree: true });
-  }
-
-  /* ------------------------------------------------------------------ */
-  /* toggle interaction                                                  */
-  /* ------------------------------------------------------------------ */
-
-  function liveCheckbox() {
-    return document.querySelector('#' + ROW_ID + ' [role="checkbox"]') || null;
-  }
-
-  function toggleTarget(ev) {
-    var cb = liveCheckbox();
-    if (!cb || !ev || !ev.target) return null;
-    var t = ev.target;
-    if (t === cb) return cb;
-    if (cb.contains && cb.contains(t)) return cb;
-    if (t.closest && t.closest('#' + ROW_ID)) return cb;
-    return null;
-  }
-
-  function setEnabled(next) {
-    next = !!next;
-    writeEnabled(next);
-    sendEnabled(next);
-    render();
-  }
-
-  function hookToggle() {
+  /* Pointer/click/keydown handling and its duplicate-event throttle. */
+  function createGesture(win, getCheckbox, onFlip) {
     var sawDown = 0;
+    var lastFlip = 0;
+    var cleanups = [];
+    var attached = false;
+
+    function toggleTarget(ev) {
+      var cb = getCheckbox();
+      if (!cb || !ev || !ev.target) return null;
+      var t = ev.target;
+      if (t === cb) return cb;
+      if (cb.contains && cb.contains(t)) return cb;
+      if (t.closest && t.closest('#' + ROW_ID)) return cb;
+      return null;
+    }
 
     function flip(ev) {
       var cb = toggleTarget(ev);
@@ -626,10 +391,7 @@
       if (ev.type === 'pointerdown') sawDown = now;
       lastFlip = now;
 
-      var shown = cb.getAttribute(STATE_ATTR);
-      var on = shown === 'true' ? true
-             : (shown === 'false' ? false : readEnabled());
-      setEnabled(!on);
+      onFlip(cb);
     }
 
     function onKey(ev) {
@@ -637,47 +399,322 @@
       flip(ev);
     }
 
-    window.addEventListener('pointerdown', flip, true);
-    window.addEventListener('click', flip, true);
-    window.addEventListener('keydown', onKey, true);
-    cleanups.push(function () {
-      window.removeEventListener('pointerdown', flip, true);
-      window.removeEventListener('click', flip, true);
-      window.removeEventListener('keydown', onKey, true);
-    });
+    return {
+      attach: function () {
+        if (attached) return;
+        attached = true;
+        win.addEventListener('pointerdown', flip, true);
+        win.addEventListener('click', flip, true);
+        win.addEventListener('keydown', onKey, true);
+        cleanups.push(function () {
+          win.removeEventListener('pointerdown', flip, true);
+          win.removeEventListener('click', flip, true);
+          win.removeEventListener('keydown', onKey, true);
+        });
+      },
+      detach: function () {
+        cleanups.forEach(function (fn) { try { fn(); } catch (e) {} });
+        cleanups = [];
+        attached = false;
+      }
+    };
   }
 
-  /* ------------------------------------------------------------------ */
-  /* api                                                                 */
-  /* ------------------------------------------------------------------ */
+  function createUi(win) {
+    var doc = win.document;
+    var qam = createQamBody(doc, win);
+    var templates = createTemplateStore(doc, win);
+    var gesture;
+    var look = null;
+    var mounted = false;
+    var observer = null;
+    var scheduled = false;
+    var scheduleTimer = null;
+    var tornDown = false;
 
-  var API = {
-    v: 1,
-    getState: function () { return { enabled: readEnabled() }; },
-    sync: sync,
-    teardown: function () {
+    var LABELS = {
+      en: 'Controller UI Haptic',
+      'zh-CN': '控制器界面震动',
+      'zh-TW': '控制器介面震動',
+      ja: 'コントローラー UI 振動'
+    };
+
+    function log() {
+      try {
+        win.console.log.apply(win.console,
+          ['[sf-ui-haptic-ui]'].concat(
+            Array.prototype.slice.call(arguments)));
+      } catch (e) {}
+    }
+
+    function languageTag(value) {
+      if (!value) return null;
+      var tag = String(value).toLowerCase().replace(/_/g, '-');
+      if (tag.indexOf('zh') === 0) {
+        return /^zh-(hant|tw|hk|mo)/.test(tag) ? 'zh-TW' : 'zh-CN';
+      }
+      if (tag.indexOf('ja') === 0) return 'ja';
+      if (tag.indexOf('en') === 0) return 'en';
+      return null;
+    }
+
+    function detectLang() {
+      var candidates = [];
+      try {
+        if (win.navigator.languages && win.navigator.languages.length) {
+          candidates = candidates.concat(
+            Array.prototype.slice.call(win.navigator.languages));
+        }
+      } catch (e) {}
+      try { if (win.navigator.language) candidates.push(win.navigator.language); }
+      catch (e) {}
+      try {
+        var root = doc.documentElement;
+        if (root && root.lang) candidates.push(root.lang);
+      } catch (e) {}
+      for (var i = 0; i < candidates.length; i++) {
+        var lang = languageTag(candidates[i]);
+        if (lang) return lang;
+      }
+      return 'en';
+    }
+
+    function labelText() {
+      return LABELS[detectLang()] || LABELS.en;
+    }
+
+    function readEnabled() {
+      try {
+        var v = win.localStorage.getItem(KEY);
+        return !(v === '0' || v === 'false');
+      } catch (e) { return true; }
+    }
+
+    function writeEnabled(on) {
+      try { win.localStorage.setItem(KEY, on ? 'true' : 'false'); } catch (e) {}
+    }
+
+    function sendEnabled(on) {
+      try {
+        var fn = win[BINDING];
+        if (typeof fn === 'function') {
+          fn(JSON.stringify({ c: 'haptic', v: !!on }));
+        }
+      } catch (e) {}
+    }
+
+    function liveCheckbox() {
+      return doc.querySelector('#' + ROW_ID + ' [role="checkbox"]') || null;
+    }
+
+    function onFlip(cb) {
+      var shown = cb.getAttribute(STATE_ATTR);
+      var on = shown === 'true' ? true
+             : (shown === 'false' ? false : readEnabled());
+      setEnabled(!on);
+    }
+
+    gesture = createGesture(win, liveCheckbox, onFlip);
+
+    function labelBoxOf(row) {
+      return row.querySelector('[id$="_Label"]') || row.querySelector('div > div');
+    }
+
+    function stripIds(row) {
+      var ids = row.querySelectorAll('[id]');
+      for (var i = 0; i < ids.length; i++) ids[i].removeAttribute('id');
+    }
+
+    function setLabel(row, text) {
+      var box = labelBoxOf(row);
+      if (!box) return null;
+      var nodes = [].slice.call(box.childNodes);
+      nodes.forEach(function (n) {
+        if (n.nodeType === 3 || (n.nodeType === 1 && n.tagName !== 'DIV')) {
+          box.removeChild(n);
+        }
+      });
+      box.appendChild(doc.createTextNode(text));
+      return box;
+    }
+
+    function setIcon(row, svgText) {
+      var box = labelBoxOf(row);
+      if (!box) return;
+      var holder = box.firstElementChild;
+      if (holder && holder.querySelector('svg')) holder.innerHTML = svgText;
+    }
+
+    function makeSeparator() {
+      var tpl = templates.current();
+      if (tpl && tpl.separatorHTML) {
+        var el = nodeFromHTML(doc, tpl.separatorHTML);
+        if (el) return el;
+      }
+      var d = doc.createElement('div');
+      d.setAttribute('role', 'separator');
+      d.style.height = '1px';
+      d.style.background = 'rgba(255, 255, 255, 0.1)';
+      return d;
+    }
+
+    /* React may drop the sibling while keeping our row; restore it after it. */
+    function ensureSeparator() {
+      var row = doc.getElementById(ROW_ID);
+      if (!row || !row.parentElement) return;
+      var next = row.nextElementSibling;
+      if (next && next.getAttribute('role') === 'separator') return;
+      row.parentElement.insertBefore(makeSeparator(), row.nextSibling);
+    }
+
+    function toggleRow(label, icon) {
+      var tpl = templates.current();
+      var row = nodeFromHTML(doc, tpl.toggleRowHTML);
+      if (!row) return null;
+      row.id = ROW_ID;
+      row.removeAttribute('aria-labelledby');
+      setLabel(row, label);
+      setIcon(row, icon);
+      var cb = row.querySelector('[role="checkbox"]');
+      if (cb) {
+        cb.removeAttribute('aria-labelledby');
+        cb.setAttribute('aria-label', label);
+        look.apply(cb, readEnabled());
+      }
+      stripIds(row);
+      return row;
+    }
+
+    function removeSections() {
+      var sections = [].slice.call(
+        doc.querySelectorAll('[' + SECTION_ATTR + ']'));
+      sections.forEach(function (el) {
+        if (el.parentNode) el.parentNode.removeChild(el);
+      });
+    }
+
+    function mount() {
+      if (tornDown) return false;
+      var p = qam.parts();
+      if (!p) return false;
+      var body = qam.pick(p);
+      if (!body) return false;
+
+      var tpl = templates.harvest(body, qam.visibleBodies(p));
+      if (!tpl) return false;
+      look = createToggleLook(doc).fromTemplate(tpl);
+
+      removeSections();
+      var existing = doc.getElementById(ROW_ID);
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+
+      var row = toggleRow(labelText(), ICON_HAPTIC);
+      if (!row) return false;
+
+      /* Native sections are 24px apart, but rows inside a section touch. Pull
+       * our section up by the previous section's bottom margin so the switch
+       * sits as close to the row above as two native rows do. */
+      var prevSection = body.lastElementChild;
+      var host = body;
+      if (tpl.sectionCls) {
+        var sec = doc.createElement('div');
+        sec.className = tpl.sectionCls;
+        sec.setAttribute(SECTION_ATTR, '');
+        if (prevSection) {
+          var gap = win.getComputedStyle(prevSection).marginBottom;
+          gap = parseFloat(gap) || 0;
+          if (gap) sec.style.marginTop = '-' + gap + 'px';
+        }
+        sec.appendChild(row);
+        sec.appendChild(makeSeparator());
+        host = sec;
+      }
+      body.appendChild(host);
+
+      mounted = true;
+      log('switch mounted into ' + body.id);
+      return true;
+    }
+
+    function render() {
+      if (!mounted) return;
+      ensureSeparator();
+      var cb = liveCheckbox();
+      if (cb) look.apply(cb, readEnabled());
+      var row = doc.getElementById(ROW_ID);
+      if (row) stripIds(row);
+    }
+
+    function sync() {
+      if (tornDown || !qam.parts()) return;
+      if (!doc.getElementById(ROW_ID)) {
+        mount();
+      } else {
+        render();
+      }
+    }
+
+    function schedule() {
+      if (tornDown || scheduled) return;
+      scheduled = true;
+      scheduleTimer = win.setTimeout(function () {
+        scheduleTimer = null;
+        scheduled = false;
+        if (tornDown) return;
+        try { sync(); } catch (e) { log('sync error', e); }
+      }, 60);
+    }
+
+    function startObserver() {
+      if (observer) return;
+      observer = new win.MutationObserver(schedule);
+      observer.observe(doc.body || doc.documentElement,
+                       { childList: true, subtree: true });
+    }
+
+    function setEnabled(next) {
+      next = !!next;
+      writeEnabled(next);
+      sendEnabled(next);
+      render();
+    }
+
+    function teardown() {
       tornDown = true;
-      if (scheduleTimer) { clearTimeout(scheduleTimer); scheduleTimer = null; }
+      if (scheduleTimer) { win.clearTimeout(scheduleTimer); scheduleTimer = null; }
       scheduled = false;
       if (observer) { observer.disconnect(); observer = null; }
-      cleanups.forEach(function (fn) { try { fn(); } catch (e) {} });
-      cleanups = [];
-      var row = document.getElementById(ROW_ID);
+      gesture.detach();
+      var row = doc.getElementById(ROW_ID);
       if (row && row.parentNode) row.parentNode.removeChild(row);
       removeSections();
-      var look = document.getElementById(LOOK_STYLE_ID);
-      if (look && look.parentNode) look.parentNode.removeChild(look);
-      mounted = false; tpl = null;
+      var lookStyle = doc.getElementById(LOOK_STYLE_ID);
+      if (lookStyle && lookStyle.parentNode) lookStyle.parentNode.removeChild(lookStyle);
+      mounted = false;
+      look = null;
+      templates.reset();
       try { if (NS.ui === API) NS.ui = null; } catch (e) {}
     }
-  };
-  NS.ui = API;
 
-  tpl = loadTemplates();
+    var API = {
+      v: 1,
+      getState: function () { return { enabled: readEnabled() }; },
+      sync: sync,
+      teardown: teardown
+    };
 
-  hookToggle();
-  startObserver();
-  sync();
-  log('installed v1' + (tpl ? ' (cached templates)' : ''));
-  return 'ok:ui';
+    function start() {
+      NS.ui = API;
+      templates.load();
+      gesture.attach();
+      startObserver();
+      sync();
+      log('installed v1' + (templates.current() ? ' (cached templates)' : ''));
+      return 'ok:ui';
+    }
+
+    return { start: start };
+  }
+
+  return createUi(window).start();
 })();
