@@ -510,7 +510,7 @@ class StateSyncTriggerTests(unittest.TestCase):
             page = self.UiPage()
             daemon.sessions[page.session_id] = page
 
-            daemon._initialize_session(page)
+            daemon._inject(page)
 
             self.assertEqual(self._flag_reads(page), [])
 
@@ -552,7 +552,7 @@ class HandshakeTriggerTests(unittest.TestCase):
             page = self.Page(title=d.UI_MATCH)
             daemon.sessions[page.session_id] = page
 
-            daemon._initialize_session(page)
+            daemon._inject(page)
 
             self.assertIn("Page.addScriptToEvaluateOnNewDocument", page.commands)
             self.assertNotIn("Runtime.addBinding", page.commands)
@@ -587,6 +587,52 @@ class HandshakeTriggerTests(unittest.TestCase):
             )
 
             self.assertIn("Runtime.addBinding", page.commands)
+
+
+class PushTriggerTests(unittest.TestCase):
+    class Page(d.Session):
+        def __init__(self, kind=d.KIND_VR):
+            port = d.DEFAULT_VR_PORT if kind == d.KIND_VR else d.DEFAULT_STEAM_PORT
+            super().__init__(d.Endpoint(port, queue.Queue(), kind), "sid", "tid", "dashboard", "https://steamloopback.host/")
+            self.evaluations = []
+
+        def send_command(self, method, params=None, timeout=10.0):
+            return {}
+
+        def evaluate(self, expr, timeout=10.0):
+            self.evaluations.append(expr)
+            return ""
+
+    def _daemon(self, tmp):
+        return d.Daemon(8080, 8087, {"gate": "g", "ui": "u"}, os.path.join(tmp, "state.json"))
+
+    def _pushes(self, page):
+        return [expr for expr in page.evaluations if "localStorage.setItem" in expr]
+
+    def test_initializing_a_vr_page_does_not_push(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp)
+            page = self.Page()
+            daemon.sessions[page.session_id] = page
+
+            daemon._inject(page)
+
+            self.assertEqual(self._pushes(page), [])
+
+    def test_an_execution_context_event_pushes_to_a_vr_page(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp)
+            page = self.Page()
+            daemon.sessions[page.session_id] = page
+
+            daemon._dispatch_cdp_event(
+                page.endpoint,
+                "Runtime.executionContextCreated",
+                {"context": {"auxData": {"isDefault": True}}},
+                page.session_id,
+            )
+
+            self.assertEqual(len(self._pushes(page)), 1)
 
 
 class PushStateTests(unittest.TestCase):

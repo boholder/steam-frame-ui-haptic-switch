@@ -900,7 +900,7 @@ class Daemon:
             # Runtime.enable delivers bindingCalled and executionContextCreated.
             session.send_command("Runtime.enable")
             session.send_command("Page.enable")
-            self._initialize_session(session)
+            self._inject(session)
             _debug("attached target %s (%s) on :%d" % (session.title, session.script_names, endpoint.port))
 
         except Exception as e:
@@ -916,13 +916,10 @@ class Daemon:
                     pass
             self._drop_target(endpoint, target_id)
 
-    def _initialize_session(self, session: Session) -> None:
-        """Inject the page's scripts and, for a VR page, push the current value.
-
-        The binding handshake is not started here: it belongs to whoever knows
-        a bindable document context exists. That is the execution-context event
-        for a load or reload, and the QAM upgrade path, which may reuse the
-        current document and therefore emit no such event.
+    def _inject(self, session: Session) -> None:
+        """Inject the page's scripts.
+        The binding handshake and the VR state push are left to the
+        execution-context event.
         """
         # Register for future documents first, then inject into the live one.
         try:
@@ -933,8 +930,6 @@ class Daemon:
         except Exception as e:
             _debug("addScript failed on %s: %s" % (session.title, e))
         self._inject_into_current_document(session)
-        if session.vr:
-            self._push_state_to(session)
 
     def _on_target_info_changed(self, endpoint: Endpoint, info: dict[str, typing.Any]) -> None:
         target_id: str = info.get("targetId") or ""
@@ -955,7 +950,7 @@ class Daemon:
             session.is_ui = True
             session.script_names = script_names
             try:
-                self._initialize_session(session)
+                self._inject(session)
                 # An in-page navigation may reuse the current document, so no
                 # execution-context event would start the handshake for it.
                 # Thus we manually start the handshake.
@@ -1000,8 +995,8 @@ class Daemon:
             session.start_handshake()
             self._sync_state_from_steam_client()
         if session.vr:
-            # A Dashboard page reloaded: its localStorage may have been
-            # recreated, so put the current value back immediately.
+            # A Dashboard page attached or reloaded: its localStorage may be
+            # missing or recreated, so put the current value back.
             self._push_state_to(session)
         try:
             self._inject_into_current_document(session)
