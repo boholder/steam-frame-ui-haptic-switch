@@ -768,15 +768,12 @@ class Daemon:
 
     # -- endpoint lifecycle -------------------------------------------------
 
-    def _drop_sessions_of_endpoint(self, endpoint: Endpoint) -> None:
-        for session in [s for s in self.sessions.values() if s.endpoint is endpoint]:
-            self._drop_session(session)
-
     def _ensure_endpoint_connected(self, endpoint: Endpoint, now: float) -> None:
         if endpoint.alive:
             return
         # Remove (daemon) held references of the sessions that related to this endpoint.
-        self._drop_sessions_of_endpoint(endpoint)
+        for session in [s for s in self.sessions.values() if s.endpoint is endpoint]:
+            self._drop(session)
         # An established connection that just dropped waits RETRY_SECONDS before
         # trying again; an endpoint that never came up retries immediately.
         if endpoint.connection_dropped:
@@ -838,29 +835,36 @@ class Daemon:
             info = params.get("targetInfo") or {}
             if is_page_type_target(info):
                 self._attach_to_page_target(endpoint, info)
+
         elif method == "Target.targetInfoChanged":
             info = params.get("targetInfo") or {}
             self._on_target_info_changed(endpoint, info)
+
         elif method == "Target.targetDestroyed":
             target_id = params.get("targetId") or ""
             sid = self.target_sessions.get((endpoint.port, target_id))
             session = self.sessions.get(sid) if sid else None
             if session is not None:
-                self._drop_session(session)
+                self._drop(session)
+
         elif method == "Target.detachedFromTarget":
             session = self.sessions.get(params.get("sessionId") or "")
             if session is not None:
-                self._drop_session(session)
+                self._drop(session)
+
         elif method == "Runtime.executionContextCreated":
+            # A "world" is an independent JS global (window) inside the page.
+            # Extensions and CDP isolated worlds get their own;
+            # only the page's default world carries our scripts and the binding.
             context = params.get("context") or {}
             aux = context.get("auxData") or {}
-            # Isolated worlds (extensions) have their own context; only the
-            # page's default context matters here.
             if aux.get("isDefault") is False:
                 return
+
             session = self.sessions.get(session_id or "")
             if session is not None:
                 self._on_execution_context_created(session)
+
         elif method == "Runtime.bindingCalled":
             if params.get("name") == BINDING:
                 self._on_binding_called(session_id or "", params.get("payload") or "")
@@ -921,7 +925,7 @@ class Daemon:
                     pass
             session = self.sessions.get(session_id) if session_id else None
             if session is not None:
-                self._drop_session(session)
+                self._drop(session)
 
     def _inject(self, session: Session) -> None:
         """Inject the page's scripts.
@@ -951,6 +955,7 @@ class Daemon:
         # update related Session instance's fields
         session.title = info.get("title") or session.title
         session.url = info.get("url") or session.url
+
         script_names = script_names_for_target(session.title, session.url, endpoint.kind)
         # A page can navigate into the QAM after attach
         if SCRIPT_UI in script_names and not session.is_ui:
@@ -965,12 +970,8 @@ class Daemon:
             except Exception as e:
                 _debug("ui upgrade failed: %s" % e)
 
-    def _drop_session(self, session: Session) -> None:
-        """Remove a session from both indexes.
-
-        The target key is derived from the session, so pass the instance that
-        was registered; nothing else points the indexes at each other.
-        """
+    def _drop(self, session: Session) -> None:
+        """Remove a session reference from both indexes."""
         self.sessions.pop(session.session_id, None)
         self.target_sessions.pop((session.endpoint.port, session.target_id), None)
 
