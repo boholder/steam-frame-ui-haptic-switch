@@ -22,7 +22,7 @@
 - **D4（原 Q4，测试）**：JS / shell 用**限定作用域的静态契约**（正则在 `function flip` / `function teardown` 等函数体内匹配）；Python 用 fake 对象做行为测试。本机没有 node，只有 esprima（可解析、不能执行）。
 - **D5（原 Q5，测试）**：不改 `Daemon.__init__` 的构造签名。测试直接驱动 `_attach` / `_on_user_change`，注入 fake `Endpoint` / `Session`，必要时 monkeypatch 模块级 `save_state`。
 - **D6（原 Q6，第 8 项）**：reader 线程里的 pong 保持直发，不绕 sender 队列。sender 长期阻塞时 endpoint 已不可用，由 D1 的超时关闭和 D2 的 shutdown 兜底。
-- **D7（原 Q7，第 2 项）**：写盘失败时 `synced_with_steam = False`，让下一次 `_prepare_session` 重试；成功或值未变化时保持 True。
+- **D7（原 Q7，第 2 项）**：写盘失败时 `synced_with_steam = False`，让下一次 `_prepare_session` 重试；成功或值未变化时保持 True。（后续演进：该标志已移除，重试改由 `Runtime.executionContextCreated` 与绑定 hello 事件驱动。）
 - **D8（原 Q8）**：实现由 `implement-spec` 流程接管（单 ticket，本地 tracker）。
 
 ## 改动清单
@@ -72,11 +72,11 @@
   return True
   ```
 - `_apply_enabled` 由回滚后的状态判断落盘是否成功：`ok = self.enabled == enabled`。写盘成功或值未变化时为 True；写盘失败被回滚后为 False。
-- `self.synced_with_steam = ok`（D7）：写盘失败时置 False，下一次 `_prepare_session` 会再次 `_sync_from_steam()`；成功或未变化时置 True。
+- ~~`self.synced_with_steam = ok`（D7）：写盘失败时置 False，下一次 `_prepare_session` 会再次 `_sync_from_steam()`；成功或未变化时置 True。~~（该标志已移除，见 D7 注。）
 - 无论成败都 `_push_vr()`；`_set_enabled` 返回 False 时推的是回滚后的旧值。
-- **已知取舍**：`:8080` localStorage 已是新值，`:8087` 会被推回旧值；下一次 `_sync_from_steam()` 会再次尝试写盘。如果磁盘持续失败，UI 与 8087 会短暂不一致。这是原 Q2 B + D7 选择的后果，ticket 接受。
+- **已知取舍**：`:8080` localStorage 已是新值，`:8087` 会被推回旧值；下一次 `_sync_state_from_steam_client()` 会再次尝试写盘。如果磁盘持续失败，UI 与 8087 会短暂不一致。这是原 Q2 B + D7 选择的后果，ticket 接受。
 
-**测试**：用 fake `save_state` 抛异常；断言 `self.enabled` 保留旧值、`daemon.synced_with_steam` 为 False，且 `_push_vr` 推的是旧值。再补一个写盘成功的用例，断言 `synced_with_steam` 为 True。
+**测试**：用 fake `save_state` 抛异常；断言 `self.enabled` 保留旧值，且 `_push_vr` 推的是旧值。再补一个写盘成功的用例，断言新值被保留。
 
 ---
 
@@ -368,7 +368,7 @@
 ## 风险
 
 - **Python 1**：sender 线程增加生命周期复杂度；必须保证 `close()` 能唤醒阻塞的 `sendall`（D2 的非阻塞 close 是关键），并避免线程泄漏。
-- **Python 3**：原 Q2 B 会短暂出现 8080 新值 / 8087 旧值的不一致；D7 会在下一次 `_prepare_session` 重试写盘，持久失败时会反复重试（频率受 attach/context 限制）。
+- **Python 3**：原 Q2 B 会短暂出现 8080 新值 / 8087 旧值的不一致；写盘失败后的重试由下一次 `Runtime.executionContextCreated` 或绑定 hello 触发，持久失败时会反复重试（频率受 context/hello 限制）。
 - **JS 4**：去掉 pointerdown 的 `preventDefault` 后，Steam 原生指针处理可能参与；`stopPropagation` 仍保留。
 - **Q6**：diff 多于一个时依赖 HTML 替换；如果 HTML 也缺失，仍走现有的 aria/pin-only 行为。
 - **Q3b**：`sed` 替换去掉转义后，若 checkout 路径含 `&`、`|` 或 `\`，单元文件里的 `INSTALLATION_PATH` 替换会出错。当前安装路径由用户 checkout 决定，接受该风险；`grep` 校验仍能发现未替换。

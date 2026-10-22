@@ -762,8 +762,6 @@ class Daemon:
         # reverse index (endpoint port, CDP targetId) -> session_id
         # For ensuring one target is attached at most once per endpoint.
         self.target_sessions: dict[tuple[int, str], str] = {}
-        # True only when the persisted value matches what :8080 reported last.
-        self.synced_with_steam = False
         # running: cleared by the SIGTERM/SIGINT handler; fatal: restart us.
         self.running = True
         self.fatal = False
@@ -774,8 +772,6 @@ class Daemon:
         for sid, session in list(self.sessions.items()):
             if session.endpoint is endpoint:
                 self._drop_session(sid)
-        if endpoint.kind == KIND_STEAM:
-            self.synced_with_steam = False
 
     def _ensure_endpoint_connected(self, endpoint: Endpoint, now: float) -> None:
         if endpoint.alive:
@@ -934,8 +930,6 @@ class Daemon:
             session.start_handshake()
         if session.vr:
             self._push_state_to(session)
-        if session.can_read_local_storage_flag and not self.synced_with_steam:
-            self._sync_state_from_steam_client()
 
     def _on_target_info_changed(self, endpoint: Endpoint, info: dict[str, typing.Any]) -> None:
         target_id: str = info.get("targetId") or ""
@@ -1072,8 +1066,6 @@ class Daemon:
                 log("switch -> %s" % enabled)
             else:
                 _debug("state <- :8080 %s" % enabled)
-        # Synced only when the write stuck and the QAM agrees with us.
-        self.synced_with_steam = self.enabled == enabled
         self._push_state_to_all_vr_sessions()
 
     def _sync_state_from_steam_client(self) -> None:
