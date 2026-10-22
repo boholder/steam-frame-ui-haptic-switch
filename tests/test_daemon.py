@@ -319,6 +319,30 @@ class SessionHandshakeRetryTests(unittest.TestCase):
         self.assertEqual(session.handshake.attempts, d.HANDSHAKE_MAX_SENDS)
 
 
+class SessionStorageTests(unittest.TestCase):
+    def _session(self, kind=d.KIND_STEAM, url="https://steamloopback.host/page"):
+        port = d.DEFAULT_VR_PORT if kind == d.KIND_VR else d.DEFAULT_STEAM_PORT
+        return d.Session(d.Endpoint(port, queue.Queue(), kind), "sid", "tid", "title", url)
+
+    def test_a_data_page_has_an_opaque_origin(self):
+        session = self._session(url="data:text/html,x")
+
+        self.assertFalse(session.shares_local_storage)
+        self.assertFalse(session.can_read_local_storage_flag)
+
+    def test_a_steam_page_shares_the_storage_and_can_be_read(self):
+        session = self._session()
+
+        self.assertTrue(session.shares_local_storage)
+        self.assertTrue(session.can_read_local_storage_flag)
+
+    def test_a_vr_page_shares_the_storage_but_is_not_read(self):
+        session = self._session(kind=d.KIND_VR)
+
+        self.assertTrue(session.shares_local_storage)
+        self.assertFalse(session.can_read_local_storage_flag)
+
+
 class AttachFailureTests(unittest.TestCase):
     class FakeEndpoint:
         kind = d.KIND_STEAM
@@ -481,11 +505,9 @@ class PushStateTests(unittest.TestCase):
 
 
 class PushPerEndpointTests(unittest.TestCase):
-    class Page:
+    class Page(d.Session):
         def __init__(self, endpoint, url="https://steamloopback.host/dashboard"):
-            self.endpoint = endpoint
-            self.url = url
-            self.title = "page"
+            super().__init__(endpoint, "sid", "tid", "page", url)
             self.evaluations = []
 
         def evaluate(self, expr, timeout=10.0):

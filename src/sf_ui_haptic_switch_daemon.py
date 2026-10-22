@@ -696,6 +696,16 @@ class Session:
         return False
 
     @property
+    def shares_local_storage(self) -> bool:
+        """A data: utility page has an opaque origin, not the shared storage."""
+        return not (self.url or "").startswith("data:")
+
+    @property
+    def can_read_local_storage_flag(self) -> bool:
+        """Only the Steam client's own pages can read the flag we wrote."""
+        return self.steam and self.shares_local_storage
+
+    @property
     def steam(self) -> bool:
         """the Steam client UI, port 8080"""
         return self.endpoint.kind == KIND_STEAM
@@ -924,7 +934,7 @@ class Daemon:
             session.start_handshake()
         if session.vr:
             self._push_state_to(session)
-        if self._can_read_local_storage_flag(session) and not self.steam_synced:
+        if session.can_read_local_storage_flag and not self.steam_synced:
             self._sync_enabled_from_steam_client()
 
     def _on_target_info_changed(self, endpoint: Endpoint, info: dict[str, typing.Any]) -> None:
@@ -1020,24 +1030,15 @@ class Daemon:
 
     # -- state --------------------------------------------------------------
 
-    @staticmethod
-    def _shares_dashboard_storage(session: Session) -> bool:
-        """A data: utility page has an opaque origin, not the shared storage."""
-        return not (session.url or "").startswith("data:")
-
-    @staticmethod
-    def _can_read_local_storage_flag(session: Session) -> bool:
-        return session.steam and Daemon._shares_dashboard_storage(session)
-
     def _choose_steam_session_for_flag_read(self) -> Session | None:
         # The QAM page is always the best place to read the flag.
         candidates = [s for s in self.sessions.values() if s.steam]
         for session in candidates:
-            if session.is_ui and self._can_read_local_storage_flag(session):
+            if session.is_ui and session.can_read_local_storage_flag:
                 return session
         # Fall back to any client page that shares the storage.
         for session in candidates:
-            if self._can_read_local_storage_flag(session):
+            if session.can_read_local_storage_flag:
                 return session
         return None
 
@@ -1097,7 +1098,7 @@ class Daemon:
             if endpoint.kind != KIND_VR:
                 continue
             for session in self.sessions.values():
-                if session.endpoint is endpoint and self._shares_dashboard_storage(session):
+                if session.endpoint is endpoint and session.shares_local_storage:
                     self._push_state_to(session)
                     break
 
