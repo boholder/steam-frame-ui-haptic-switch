@@ -560,16 +560,28 @@ def default_state_file_path() -> str:
 
 
 def read_persisted_enabled(path: str) -> bool:
-    """Read the persisted switch value; missing/corrupt means on."""
+    """Read the persisted switch value; missing, corrupt or junk means on.
+
+    Accepts a boolean, a number (0 is off) or a case-insensitive string
+    ("false"/"0" are off; anything else is on).
+    """
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-        if isinstance(data, dict) and isinstance(data.get("enabled"), bool):
-            return data["enabled"]
     except FileNotFoundError:
-        pass
+        return True
     except Exception as e:
         _debug("state read failed: %s" % e)
+        return True
+    if not isinstance(data, dict):
+        return True
+    value = data.get("enabled")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() not in ("0", "false")
     return True
 
 

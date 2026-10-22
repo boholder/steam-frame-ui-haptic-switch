@@ -73,6 +73,33 @@ class FlagReadTests(unittest.TestCase):
             self.assertFalse(self._read(value), value)
 
 
+class PersistedValueTests(unittest.TestCase):
+    def _read(self, payload):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "state.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(payload, f)
+            return d.read_persisted_enabled(path)
+
+    def test_booleans(self):
+        self.assertTrue(self._read({"enabled": True}))
+        self.assertFalse(self._read({"enabled": False}))
+
+    def test_numbers(self):
+        self.assertTrue(self._read({"enabled": 1}))
+        self.assertFalse(self._read({"enabled": 0}))
+
+    def test_strings_ignore_case(self):
+        for value in ("true", "TRUE", "True", "1"):
+            self.assertTrue(self._read({"enabled": value}), value)
+        for value in ("false", "FALSE", "False", "0"):
+            self.assertFalse(self._read({"enabled": value}), value)
+
+    def test_unrecognized_means_on(self):
+        for payload in ({}, {"enabled": None}, {"enabled": 2}, {"enabled": "junk"}, []):
+            self.assertTrue(self._read(payload), payload)
+
+
 class PayloadTests(unittest.TestCase):
     def test_hi_handshake_message(self):
         self.assertEqual(d.parse_binding_message('{"c":"hi"}'), ("hi", None))
