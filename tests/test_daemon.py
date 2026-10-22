@@ -463,10 +463,10 @@ class PrecomputedScriptTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             daemon = self._daemon(tmp)
             for name in (d.SCRIPT_GATE, d.SCRIPT_UI):
-                self.assertEqual(daemon.marker_probes[name], d.build_script_marker_probe(name))
+                self.assertEqual(daemon.marker_probe_exprs[name], d.build_script_marker_probe(name))
                 self.assertEqual(
                     daemon.injections[name],
-                    d.build_script_injection(daemon.js_sources[name], name, daemon.markers[name]),
+                    d.build_script_injection(daemon.js_sources[name], name, daemon.expected_markers[name]),
                 )
 
     def test_new_document_script_joins_precomputed_injections_in_order(self):
@@ -477,8 +477,8 @@ class PrecomputedScriptTests(unittest.TestCase):
     def test_inject_skips_a_page_that_already_runs_the_build(self):
         with tempfile.TemporaryDirectory() as tmp:
             daemon = self._daemon(tmp)
-            probe = daemon.marker_probes[d.SCRIPT_GATE]
-            session = RecordingSession([d.SCRIPT_GATE], {probe: daemon.markers[d.SCRIPT_GATE]})
+            probe = daemon.marker_probe_exprs[d.SCRIPT_GATE]
+            session = RecordingSession([d.SCRIPT_GATE], {probe: daemon.expected_markers[d.SCRIPT_GATE]})
 
             daemon._inject_into_current_document(session)
 
@@ -487,7 +487,7 @@ class PrecomputedScriptTests(unittest.TestCase):
     def test_inject_sends_the_precomputed_script(self):
         with tempfile.TemporaryDirectory() as tmp:
             daemon = self._daemon(tmp)
-            probe = daemon.marker_probes[d.SCRIPT_GATE]
+            probe = daemon.marker_probe_exprs[d.SCRIPT_GATE]
             session = RecordingSession([d.SCRIPT_GATE], {probe: ""})
 
             daemon._inject_into_current_document(session)

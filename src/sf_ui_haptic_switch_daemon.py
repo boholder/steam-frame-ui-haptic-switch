@@ -707,11 +707,14 @@ class Daemon:
         state_file: str,
     ) -> None:
         self.js_sources = js_sources
-        # Content marker per script, so pages can report which build they run.
-        self.markers = {script: build_script_marker(src) for script, src in js_sources.items()}
         # Only two scripts, so precompute the strings every page reuses.
-        self.marker_probes = {name: build_script_marker_probe(name) for name in js_sources}
-        self.injections = {name: build_script_injection(src, name, self.markers[name]) for name, src in js_sources.items()}
+        # Expected content hash per script: what a page should report back.
+        self.expected_markers = {script: build_script_marker(src) for script, src in js_sources.items()}
+        # JS expression that asks a page which marker it currently has.
+        self.marker_probe_exprs = {name: build_script_marker_probe(name) for name in js_sources}
+        self.injections = {
+            name: build_script_injection(src, name, self.expected_markers[name]) for name, src in js_sources.items()
+        }
         self.state_file = state_file
         self.enabled = read_persisted_enabled(state_file)
         # Reader threads push (endpoint, method, params, session_id) here.
@@ -944,8 +947,8 @@ class Daemon:
             injection = self.injections.get(name)
             if injection is None:
                 continue
-            marker = self.markers[name]
-            current = session.evaluate(self.marker_probes[name])
+            marker = self.expected_markers[name]
+            current = session.evaluate(self.marker_probe_exprs[name])
             # Same marker: the page already runs this exact build.
             if current == marker:
                 continue
