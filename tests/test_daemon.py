@@ -237,6 +237,59 @@ class SessionTests(unittest.TestCase):
         self.assertFalse(hasattr(session, "addscript_id"))
 
 
+class SessionHandshakeTests(unittest.TestCase):
+    class RecordingEndpoint:
+        kind = d.KIND_STEAM
+
+        def __init__(self, fail=False):
+            self.calls = []
+            self.fail = fail
+
+        def send_command(self, method, params=None, session=None, timeout=10.0):
+            self.calls.append((method, dict(params or {}), session, timeout))
+            if self.fail:
+                raise d.WSError("boom")
+            return {}
+
+        def evaluate(self, expr, session=None, timeout=10.0):
+            self.calls.append(("evaluate", expr, session, timeout))
+            if self.fail:
+                raise d.WSError("boom")
+            return None
+
+    def _session(self, fail=False):
+        endpoint = self.RecordingEndpoint(fail)
+        return d.Session(endpoint, "sid", "tid", "systemui", ""), endpoint
+
+    def test_start_handshake_resets_the_state_and_sends(self):
+        session, endpoint = self._session()
+        session.handshake.attempts = 9
+
+        session.start_handshake()
+
+        self.assertEqual(session.handshake.attempts, 1)
+        self.assertIsNotNone(session.handshake.deadline)
+        self.assertEqual(endpoint.calls[0][0], "Runtime.addBinding")
+        self.assertEqual(endpoint.calls[0][1], {"name": d.BINDING})
+        self.assertEqual(endpoint.calls[0][2], "sid")
+
+    def test_send_handshake_evaluates_the_hello_binding(self):
+        session, endpoint = self._session()
+
+        session.send_handshake()
+
+        self.assertEqual(session.handshake.attempts, 1)
+        self.assertEqual(endpoint.calls[1][0], "evaluate")
+        self.assertIn(d.BINDING, endpoint.calls[1][1])
+
+    def test_send_handshake_swallows_errors_but_counts_the_attempt(self):
+        session, _ = self._session(fail=True)
+
+        session.send_handshake()
+
+        self.assertEqual(session.handshake.attempts, 1)
+
+
 class AttachFailureTests(unittest.TestCase):
     class FakeEndpoint:
         kind = d.KIND_STEAM

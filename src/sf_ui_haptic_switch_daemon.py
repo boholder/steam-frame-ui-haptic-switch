@@ -42,6 +42,7 @@ import time
 import typing
 import urllib.request
 
+
 # --------------------------------------------------------------------------
 # CDP transport
 # --------------------------------------------------------------------------
@@ -638,14 +639,15 @@ class Handshake:
 
 
 class Session:
-    """One attached page target on one endpoint, a pure data object.
+    """One attached page target on one endpoint, as seen by the daemon.
 
     Holds the CDP ``sessionId`` and ``targetId`` that identify the page, its
     latest title/url, the injected scripts it should receive, and its handshake
     progress.
 
-    ``send_command()`` and ``evaluate()`` are thin facades that add
-    ``sessionId`` to the endpoint's calls.
+    ``send_command()``/``evaluate()`` add ``sessionId`` to the endpoint's calls,
+    and ``start_handshake()``/``send_handshake()`` drive the binding handshake
+    for this page.
 
     Registered and torn down by ``Daemon``.
     """
@@ -673,12 +675,29 @@ class Session:
     def evaluate(self, expr: str, timeout: float = 10.0) -> typing.Any:
         return self.endpoint.evaluate(expr, session=self.session_id, timeout=timeout)
 
+    def start_handshake(self) -> None:
+        """Reset the handshake state and send the first attempt."""
+        self.handshake.restart()
+        self.send_handshake()
+
+    def send_handshake(self) -> None:
+        """Send one attempt; Daemon retries until ``handshake.exhausted()``."""
+        self.handshake.sent(time.time())
+        try:
+            self.send_command("Runtime.addBinding", {"name": BINDING})
+            self.evaluate("window.%s(JSON.stringify({c:'hello'}))" % BINDING)
+            _debug("handshake -> %s (attempt %d)" % (self.title, self.handshake.attempts))
+        except Exception as e:
+            _debug("handshake send failed: %s" % e)
+
     @property
     def steam(self) -> bool:
+        """the Steam client UI, port 8080"""
         return self.endpoint.kind == KIND_STEAM
 
     @property
     def vr(self) -> bool:
+        """the SteamVR Dashboard, port 8087"""
         return self.endpoint.kind == KIND_VR
 
 
@@ -899,7 +918,7 @@ class Daemon:
             _debug("addScript failed on %s: %s" % (session.title, e))
         self._inject_into_current_document(session)
         if session.is_ui:
-            self._start_binding_handshake(session)
+            session.start_handshake()
         if session.vr:
             self._push_state_to_session(session)
         if self._can_read_local_storage_flag(session) and not self.steam_synced:
@@ -909,14 +928,17 @@ class Daemon:
         target_id: str = info.get("targetId") or ""
         sid = self.target_sessions.get((endpoint.port, target_id))
         session = self.sessions.get(sid) if sid else None
+
         if session is None:
             if is_page_type_target(info):
                 self._attach_to_page_target(endpoint, info)
             return
+
+        # update related Session instance's fields
         session.title = info.get("title") or session.title
         session.url = info.get("url") or session.url
         script_names = script_names_for_target(session.title, session.url, endpoint.kind)
-        # A page can navigate into the QAM after attach; upgrade it in place.
+        # A page can navigate into the QAM after attach
         if SCRIPT_UI in script_names and not session.is_ui:
             session.is_ui = True
             session.script_names = script_names
@@ -957,7 +979,7 @@ class Daemon:
 
     def _on_execution_context_created(self, session: Session) -> None:
         if session.is_ui:
-            self._start_binding_handshake(session)
+            session.start_handshake()
             self._sync_enabled_from_steam_client()
         if session.vr:
             # A Dashboard page reloaded: its localStorage may have been
@@ -970,21 +992,6 @@ class Daemon:
 
     # -- binding handshake --------------------------------------------------
 
-    @staticmethod
-    def _start_binding_handshake(session: Session) -> None:
-        session.handshake.restart()
-        Daemon._send_binding_handshake(session)
-
-    @staticmethod
-    def _send_binding_handshake(session: Session) -> None:
-        session.handshake.sent(time.time())
-        try:
-            session.send_command("Runtime.addBinding", {"name": BINDING})
-            session.evaluate("window.%s(JSON.stringify({c:'hello'}))" % BINDING)
-            _debug("handshake -> %s (attempt %d)" % (session.title, session.handshake.attempts))
-        except Exception as e:
-            _debug("handshake send failed: %s" % e)
-
     def _retry_due_handshakes(self, now: float) -> None:
         for session in list(self.sessions.values()):
             if not session.is_ui or not session.handshake.due(now):
@@ -994,7 +1001,7 @@ class Daemon:
                 log("binding handshake failed after %d attempts; restarting" % session.handshake.attempts)
                 self.fatal = True
                 return
-            Daemon._send_binding_handshake(session)
+            session.send_handshake()
 
     def _on_binding_called(self, session_id: str, payload: str) -> None:
         msg = parse_binding_message(payload)
