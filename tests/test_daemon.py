@@ -530,6 +530,65 @@ class StateSyncTriggerTests(unittest.TestCase):
             self.assertEqual(len(self._flag_reads(page)), 1)
 
 
+class HandshakeTriggerTests(unittest.TestCase):
+    class Page(d.Session):
+        def __init__(self, title="systemui", url="https://steamloopback.host/"):
+            super().__init__(d.Endpoint(8080, queue.Queue(), d.KIND_STEAM), "sid", "tid", title, url)
+            self.commands = []
+
+        def send_command(self, method, params=None, timeout=10.0):
+            self.commands.append(method)
+            return {}
+
+        def evaluate(self, expr, timeout=10.0):
+            return ""
+
+    def _daemon(self, tmp):
+        return d.Daemon(8080, 8087, {"gate": "g", "ui": "u"}, os.path.join(tmp, "state.json"))
+
+    def test_initializing_a_page_only_injects(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp)
+            page = self.Page(title=d.UI_MATCH)
+            daemon.sessions[page.session_id] = page
+
+            daemon._initialize_session(page)
+
+            self.assertIn("Page.addScriptToEvaluateOnNewDocument", page.commands)
+            self.assertNotIn("Runtime.addBinding", page.commands)
+
+    def test_an_execution_context_event_starts_the_handshake(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp)
+            page = self.Page(title=d.UI_MATCH)
+            daemon.sessions[page.session_id] = page
+
+            daemon._dispatch_cdp_event(
+                page.endpoint,
+                "Runtime.executionContextCreated",
+                {"context": {"auxData": {"isDefault": True}}},
+                page.session_id,
+            )
+
+            self.assertIn("Runtime.addBinding", page.commands)
+
+    def test_navigating_into_the_qam_starts_the_handshake(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = self._daemon(tmp)
+            page = self.Page()
+            daemon.sessions[page.session_id] = page
+            daemon.target_sessions[(page.endpoint.port, page.target_id)] = page.session_id
+
+            daemon._dispatch_cdp_event(
+                page.endpoint,
+                "Target.targetInfoChanged",
+                {"targetInfo": {"targetId": page.target_id, "title": d.UI_MATCH, "url": ""}},
+                None,
+            )
+
+            self.assertIn("Runtime.addBinding", page.commands)
+
+
 class PushStateTests(unittest.TestCase):
     def test_push_writes_a_boolean_literal(self):
         with tempfile.TemporaryDirectory() as tmp:

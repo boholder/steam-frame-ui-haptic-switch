@@ -917,6 +917,13 @@ class Daemon:
             self._drop_target(endpoint, target_id)
 
     def _initialize_session(self, session: Session) -> None:
+        """Inject the page's scripts and, for a VR page, push the current value.
+
+        The binding handshake is not started here: it belongs to whoever knows
+        a bindable document context exists. That is the execution-context event
+        for a load or reload, and the QAM upgrade path, which may reuse the
+        current document and therefore emit no such event.
+        """
         # Register for future documents first, then inject into the live one.
         try:
             session.send_command(
@@ -926,8 +933,6 @@ class Daemon:
         except Exception as e:
             _debug("addScript failed on %s: %s" % (session.title, e))
         self._inject_into_current_document(session)
-        if session.is_ui:
-            session.start_handshake()
         if session.vr:
             self._push_state_to(session)
 
@@ -951,6 +956,10 @@ class Daemon:
             session.script_names = script_names
             try:
                 self._initialize_session(session)
+                # An in-page navigation may reuse the current document, so no
+                # execution-context event would start the handshake for it.
+                # Thus we manually start the handshake.
+                session.start_handshake()
             except Exception as e:
                 _debug("ui upgrade failed: %s" % e)
 
@@ -986,6 +995,8 @@ class Daemon:
 
     def _on_execution_context_created(self, session: Session) -> None:
         if session.is_ui:
+            # On a first load or a reload this is the moment to (re)send the
+            # binding: whatever the page answered before no longer applies.
             session.start_handshake()
             self._sync_state_from_steam_client()
         if session.vr:
