@@ -42,7 +42,6 @@ import time
 import typing
 import urllib.request
 
-
 # --------------------------------------------------------------------------
 # CDP transport
 # --------------------------------------------------------------------------
@@ -482,7 +481,7 @@ def storage_value_to_enabled(value: str | None) -> bool:
     return not (value == "0" or value == "false")
 
 
-def enabled_to_storage_value(enabled: bool) -> str:
+def storage_value_of(enabled: bool) -> str:
     return "1" if enabled else "0"
 
 
@@ -615,17 +614,17 @@ class Handshake:
     """The binding handshake for one UI session: first send + 3 retries."""
 
     def __init__(self) -> None:
-        self._reset()
+        self.ok = False
+        self.attempts = 0
+        self.deadline: float | None
+        self.restart()
 
-    def _reset(self) -> None:
+    def restart(self) -> None:
         # ok: the page answered; attempts: sends so far; deadline: when the
         # next retry is due (None until the first send).
         self.ok = False
         self.attempts = 0
-        self.deadline: float | None = None
-
-    def restart(self) -> None:
-        self._reset()
+        self.deadline = None
 
     def sent(self, now: float) -> None:
         self.attempts += 1
@@ -1064,9 +1063,9 @@ class Daemon:
     def _apply_enabled_and_push_to_vr(self, enabled: bool, source: str) -> None:
         if self._persist_enabled_change(enabled):
             if source == "switch":
-                log("switch -> %s" % enabled_to_storage_value(enabled))
+                log("switch -> %s" % storage_value_of(enabled))
             else:
-                _debug("state <- :8080 %s" % enabled_to_storage_value(enabled))
+                _debug("state <- :8080 %s" % storage_value_of(enabled))
         # Synced only when the write stuck and the QAM agrees with us.
         self.steam_synced = self.enabled == enabled
         self._push_state_to_all_vr_sessions()
@@ -1092,7 +1091,7 @@ class Daemon:
                 self._push_state_to_session(session)
 
     def _push_state_to_session(self, session: Session) -> None:
-        value = enabled_to_storage_value(self.enabled)
+        value = storage_value_of(self.enabled)
         try:
             session.evaluate("localStorage.setItem(%s, %s)" % (json.dumps(KEY), json.dumps(value)))
             _debug("push -> %s %s" % (session.title, value))

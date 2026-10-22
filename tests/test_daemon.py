@@ -25,8 +25,8 @@ class FlagTests(unittest.TestCase):
             self.assertFalse(d.storage_value_to_enabled(value), value)
 
     def test_storage_value(self):
-        self.assertEqual(d.enabled_to_storage_value(True), "1")
-        self.assertEqual(d.enabled_to_storage_value(False), "0")
+        self.assertEqual(d.storage_value_of(True), "1")
+        self.assertEqual(d.storage_value_of(False), "0")
 
 
 class PayloadTests(unittest.TestCase):
@@ -201,14 +201,12 @@ class CommandLogTests(unittest.TestCase):
 class HandshakeTests(unittest.TestCase):
     def test_three_retries_after_the_first_send(self):
         h = d.Handshake()
-        h.restart()
         for expected in (False, False, False, True):
             h.sent(0)
             self.assertEqual(h.exhausted(), expected)
 
     def test_due_and_verified(self):
         h = d.Handshake()
-        h.restart()
         self.assertFalse(h.due(0))
         h.sent(0)
         self.assertFalse(h.due(0))
@@ -216,12 +214,12 @@ class HandshakeTests(unittest.TestCase):
         h.ok = True
         self.assertFalse(h.due(d.HANDSHAKE_TIMEOUT * 2))
 
-    def test_start_uses_an_explicit_unscheduled_state(self):
+    def test_a_fresh_instance_is_unscheduled(self):
         h = d.Handshake()
         self.assertIsNone(h.deadline)
         h.sent(100)
         h.ok = True
-        h.restart()
+        h = d.Handshake()
         self.assertFalse(h.ok)
         self.assertEqual(h.attempts, 0)
         self.assertIsNone(h.deadline)
