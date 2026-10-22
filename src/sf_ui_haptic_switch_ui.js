@@ -2,7 +2,7 @@
  *
  * Appends a single "Controller UI Haptic" switch to the end of the Quick
  * Settings tab. Flipping it writes `localStorage['sf_ui_haptic_switch']`
- * (true/false) and then notifies the daemon through the __sfUiHapticSwitchSend
+ * ('0'/'1') and then notifies the daemon through the __sfUiHapticSwitchSend
  * binding. The daemon persists the value and pushes it to the SteamVR
  * dashboard pages; the gate script in every page reads the flag at call time.
  * The daemon never writes back to :8080, so there is no echo and no pending
@@ -26,13 +26,14 @@
   var LOOK_STYLE_ID = 'sf_ui_haptic_switch_look';
   var KEY = 'sf_ui_haptic_switch';
   var BINDING = '__sfUiHapticSwitchSend';
-  var CACHE_KEY = 'sf_ui_haptic_switch_tpl_v1';
+  var CACHE_KEY = 'sf_ui_haptic_switch_tpl_v2';
   var BODY_KEY = 'sf_ui_haptic_switch_body_v1';
   var STATE_ATTR = 'data-sf-ui-haptic-state';
   var SECTION_ATTR = 'data-sf-ui-haptic-section';
 
-  var mounted = false;    /* our row exists in the DOM */
+  var ui = null;          /* { checkbox } */
   var tpl = null;
+  var bodyId = null;
   var observer = null;
   var scheduled = false;
   var scheduleTimer = null;
@@ -56,7 +57,7 @@
   }
 
   function writeEnabled(on) {
-    try { localStorage.setItem(KEY, on ? 'true' : 'false'); } catch (e) {}
+    try { localStorage.setItem(KEY, on ? '1' : '0'); } catch (e) {}
   }
 
   /* Notify the daemon. The value it reads from localStorage is authoritative;
@@ -196,10 +197,16 @@
   }
 
   function targetBody(p) {
-    var saved = loadBodyId();
-    if (saved) {
-      var el = document.getElementById(saved);
-      if (el) return el;
+    if (bodyId) {
+      var cached = document.getElementById(bodyId);
+      if (cached) return cached;
+      bodyId = null;
+    }
+    bodyId = loadBodyId();
+    if (bodyId) {
+      var saved = document.getElementById(bodyId);
+      if (saved) return saved;
+      bodyId = null;
       try { sessionStorage.removeItem(BODY_KEY); } catch (e) {}
     }
     var best = null, bestScore = 0;
@@ -211,7 +218,8 @@
       if (s > bestScore) { bestScore = s; best = b; }
     });
     if (!best || bestScore < 2) return null;
-    try { sessionStorage.setItem(BODY_KEY, best.id); } catch (e) {}
+    bodyId = best.id;
+    try { sessionStorage.setItem(BODY_KEY, bodyId); } catch (e) {}
     return best;
   }
 
@@ -263,22 +271,29 @@
   function grabTemplate(body) {
     if (!body) return null;
     var probe = '[role="checkbox"]';
+    var toggle = body.querySelector(probe);
+    if (!toggle || mine(toggle)) return null;
 
     /* body > section > row, mirroring the stock layout: the section is the
      * group wrapper (reused for spacing), the row is what we clone. */
     var section = childWith(body, probe);
     if (!section) return null;
     var row = childWith(section, probe) || section;
-    if (mine(row)) return null;
 
     var ts = harvestToggleStates(body) || harvestToggleStates(document) || {};
+    /* The native divider is a sibling element, not a border or pseudo-element.
+     * Capture its outerHTML so the hashed class stays in sync with the build. */
+    var sep = body.querySelector('[role="separator"]') ||
+              document.querySelector('#QuickAccess-Menu [role="separator"]');
 
     return {
       sectionCls: section.className || '',
       toggleRowHTML: row.outerHTML,
-      toggleOnExtra: ts.toggleOnExtra,
-      toggleOnHTML: ts.toggleOnHTML,
-      toggleOffHTML: ts.toggleOffHTML
+      separatorHTML: sep ? sep.outerHTML : null,
+      separatorCls: sep ? String(sep.className) : '',
+      toggleOnExtra: ts.toggleOnExtra || null,
+      toggleOnHTML: ts.toggleOnHTML || null,
+      toggleOffHTML: ts.toggleOffHTML || null
     };
   }
 
@@ -333,6 +348,10 @@
       try { sessionStorage.removeItem(CACHE_KEY); } catch (e) {}
       return null;
     }
+    if (t.separatorCls && !selectorKnown(t.separatorCls)) {
+      try { sessionStorage.removeItem(CACHE_KEY); } catch (e) {}
+      return null;
+    }
     return t;
   }
 
@@ -377,6 +396,27 @@
     if (holder && holder.querySelector('svg')) holder.innerHTML = svgText;
   }
 
+  function makeSeparator() {
+    if (tpl && tpl.separatorHTML) {
+      var el = nodeFromHTML(tpl.separatorHTML);
+      if (el) return el;
+    }
+    var d = document.createElement('div');
+    d.setAttribute('role', 'separator');
+    d.style.height = '1px';
+    d.style.background = 'rgba(255, 255, 255, 0.1)';
+    return d;
+  }
+
+  /* React may drop the sibling while keeping our row; restore it after the row. */
+  function ensureSeparator() {
+    var row = document.getElementById(ROW_ID);
+    if (!row || !row.parentElement) return;
+    var next = row.nextElementSibling;
+    if (next && next.getAttribute('role') === 'separator') return;
+    row.parentElement.insertBefore(makeSeparator(), row.nextSibling);
+  }
+
   /* The stock switch is drawn entirely by CSS: the knob slides via a transform
    * and the track turns blue via a ::before. Both animate on `transition`, and a
    * transition only advances while the page is actually composited -- the popup
@@ -407,7 +447,7 @@
   }
 
   function finishToggle(cb, on) {
-    cb.setAttribute(STATE_ATTR, on ? 'true' : 'false');
+    cb.setAttribute(STATE_ATTR, on ? '1' : '0');
     cb.setAttribute('aria-checked', on ? 'true' : 'false');
     pinToggleLook(cb, on);
     return cb;
@@ -415,7 +455,7 @@
 
   function applyToggleLook(cb, on) {
     if (!cb || !tpl) return cb;
-    var want = on ? 'true' : 'false';
+    var want = on ? '1' : '0';
     if (cb.getAttribute(STATE_ATTR) === want) {
       return finishToggle(cb, on);
     }
@@ -435,6 +475,7 @@
     var label = cb.getAttribute('aria-label');
     if (label) fresh.setAttribute('aria-label', label);
     if (cb.parentNode) cb.parentNode.replaceChild(fresh, cb);
+    if (ui) ui.checkbox = fresh;
     return finishToggle(fresh, on);
   }
 
@@ -449,10 +490,10 @@
     if (cb) {
       cb.removeAttribute('aria-labelledby');
       cb.setAttribute('aria-label', label);
-      applyToggleLook(cb, readEnabled());
+      cb = applyToggleLook(cb, readEnabled()) || cb;
     }
     stripIds(row);
-    return row;
+    return { row: row, checkbox: cb };
   }
 
   /* ------------------------------------------------------------------ */
@@ -484,28 +525,43 @@
     var existing = document.getElementById(ROW_ID);
     if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
 
-    var row = toggleRow(labelText(), ICON_HAPTIC);
-    if (!row) return false;
+    var built = toggleRow(labelText(), ICON_HAPTIC);
+    if (!built) return false;
+    var row = built.row;
 
+    /* Native sections are 24px apart, but rows inside a section touch. Pull
+     * our section up by the previous section's bottom margin so the switch
+     * sits as close to the row above as two native rows do. */
+    var prevSection = body.lastElementChild;
     var host = body;
     if (tpl.sectionCls) {
       var sec = document.createElement('div');
       sec.className = tpl.sectionCls;
       sec.setAttribute(SECTION_ATTR, '');
+      if (prevSection) {
+        var gap = parseFloat(getComputedStyle(prevSection).marginBottom) || 0;
+        if (gap) sec.style.marginTop = '-' + gap + 'px';
+      }
       sec.appendChild(row);
+      sec.appendChild(makeSeparator());
       host = sec;
     }
     body.appendChild(host);
 
-    mounted = true;
+    ui = { checkbox: built.checkbox };
+    render();
     log('switch mounted into ' + body.id);
     return true;
   }
 
   function render() {
-    if (!mounted) return;
+    if (!ui) return;
+    ensureSeparator();
     var cb = liveCheckbox();
-    if (cb) applyToggleLook(cb, readEnabled());
+    if (cb) {
+      cb = applyToggleLook(cb, readEnabled()) || cb;
+      ui.checkbox = cb;
+    }
     var row = document.getElementById(ROW_ID);
     if (row) stripIds(row);
   }
@@ -556,11 +612,14 @@
     return null;
   }
 
+  /* No echo: flipping writes the shared flag, tells the daemon, and repaints.
+   * The daemon only pushes to :8087, never back to :8080. */
   function setEnabled(next) {
     next = !!next;
     writeEnabled(next);
     sendEnabled(next);
     render();
+    return true;
   }
 
   function hookToggle() {
@@ -586,8 +645,8 @@
       lastFlip = now;
 
       var shown = cb.getAttribute(STATE_ATTR);
-      var on = shown === 'true' ? true
-             : (shown === 'false' ? false : readEnabled());
+      var on = shown === '1' ? true
+             : (shown === '0' ? false : readEnabled());
       setEnabled(!on);
     }
 
@@ -626,13 +685,16 @@
       removeSections();
       var look = document.getElementById(LOOK_STYLE_ID);
       if (look && look.parentNode) look.parentNode.removeChild(look);
-      mounted = false; tpl = null;
+      ui = null; tpl = null;
       try { if (NS.ui === API) NS.ui = null; } catch (e) {}
     }
   };
   NS.ui = API;
 
   tpl = loadTemplates();
+  if (tpl) {
+    bodyId = loadBodyId();
+  }
 
   hookToggle();
   startObserver();

@@ -119,6 +119,26 @@ class ContractTests(unittest.TestCase):
             self.assertIsNotNone(m, name)
             self.assertIn("stripIds(row)", m.group(1), name)
 
+    def test_ui_adds_the_native_separator(self):
+        t = read(UI)
+        self.assertIn("separatorHTML", t)
+        self.assertIn("function makeSeparator", t)
+        self.assertIn("function ensureSeparator", t)
+        self.assertIn("nextElementSibling", t)
+        self.assertNotIn("previousElementSibling", t)
+        self.assertIn("setAttribute('role', 'separator')", t)
+        self.assertIn("sf_ui_haptic_switch_tpl_v2", t)
+        m = re.search(r"function render\(\) \{(.*?)\n  \}", t, re.S)
+        self.assertIsNotNone(m)
+        self.assertIn("ensureSeparator()", m.group(1))
+
+    def test_ui_matches_the_native_row_gap(self):
+        t = read(UI)
+        self.assertIn("prevSection", t)
+        self.assertIn("getComputedStyle(prevSection)", t)
+        self.assertIn("marginBottom", t)
+        self.assertIn("style.marginTop", t)
+
     def test_ui_harvests_only_a_single_toggle_class(self):
         t = read(UI)
         self.assertIn("diff.length === 1", t)
