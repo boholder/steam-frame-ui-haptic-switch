@@ -34,6 +34,7 @@
   var EFFECT_BUTTON_LEAVE = 2;
   var KEY = 'sf_ui_haptic_switch';
   var RETRY_MS = 1000;
+  var PROP = 'TriggerOverlayHapticEffect';
 
   var timer = null;
   var stopped = false;
@@ -61,93 +62,62 @@
       (effect === EFFECT_BUTTON_ENTER || effect === EFFECT_BUTTON_LEAVE);
   }
 
-  function remember(owner, prop, patched, original) {
-    wrappers.push({
-      owner: owner,
-      prop: prop,
-      patched: patched,
-      original: original
-    });
-  }
-
-  function wrap(owner, prop, makePatched) {
-    if (!owner || typeof owner[prop] !== 'function') return false;
-
-    var current = owner[prop];
+  /* Steam's bridge takes the effect first; VRHTML's takes the overlay handle
+   * first. One parametrised wrapper covers both. */
+  function wrap(owner, effectArg) {
+    if (!owner || typeof owner[PROP] !== 'function') return false;
 
     /* Already wrapped by us: take ownership so a later teardown restores it.
      * The install timer runs every second, so do not append a duplicate
      * record on every tick. */
+    var current = owner[PROP];
     if (current.__sfUiHapticWrapped && current.__sfUiHapticOriginal) {
       for (var i = 0; i < wrappers.length; i++) {
         if (wrappers[i].patched === current) return true;
       }
-      remember(owner, prop, current, current.__sfUiHapticOriginal);
+      wrappers.push({
+        owner: owner,
+        prop: PROP,
+        patched: current,
+        original: current.__sfUiHapticOriginal
+      });
       return true;
     }
 
-    var patched = makePatched(current);
+    var patched = function () {
+      if (shouldDrop(arguments[effectArg])) return undefined;
+      return Reflect.apply(current, this, arguments);
+    };
     patched.__sfUiHapticWrapped = true;
     patched.__sfUiHapticOriginal = current;
 
-    try { owner[prop] = patched; } catch (e) { return false; }
-    if (owner[prop] !== patched) return false;
+    try { owner[PROP] = patched; } catch (e) { return false; }
+    if (owner[PROP] !== patched) return false;
 
-    remember(owner, prop, patched, current);
+    wrappers.push({ owner: owner, prop: PROP, patched: patched, original: current });
     return true;
-  }
-
-  /* Steam's bridge takes the effect first; VRHTML's takes the overlay handle
-   * first. One parametrised wrapper covers both. */
-  function bridgeSpecs() {
-    var specs = [];
-    try {
-      var sov = window.SteamClient && window.SteamClient.OpenVR;
-      if (sov && typeof sov.TriggerOverlayHapticEffect === 'function') {
-        specs.push({ owner: sov, effectArg: 0 });
-      }
-    } catch (e) {}
-    try {
-      var vov = window.VRHTML && window.VRHTML.VROverlay;
-      if (vov && typeof vov.TriggerOverlayHapticEffect === 'function') {
-        specs.push({ owner: vov, effectArg: 1 });
-      }
-    } catch (e) {}
-    return specs;
-  }
-
-  function patcher(effectArg) {
-    return function (original) {
-      return function () {
-        if (shouldDrop(arguments[effectArg])) return undefined;
-        return Reflect.apply(original, this, arguments);
-      };
-    };
   }
 
   function install() {
     if (stopped) return false;
-    var specs = bridgeSpecs();
+    var specs = [
+      { owner: window.SteamClient && window.SteamClient.OpenVR, effectArg: 0 },
+      { owner: window.VRHTML && window.VRHTML.VROverlay, effectArg: 1 }
+    ];
     var installed = 0;
     for (var i = 0; i < specs.length; i++) {
-      if (wrap(specs[i].owner, 'TriggerOverlayHapticEffect',
-               patcher(specs[i].effectArg))) {
-        installed += 1;
-      }
+      if (wrap(specs[i].owner, specs[i].effectArg)) installed += 1;
     }
     return installed > 0;
   }
 
   function restore() {
-    for (var i = wrappers.length - 1; i >= 0; i--) {
-      var w = wrappers[i];
+    while (wrappers.length) {
+      var w = wrappers.pop();
       try {
-        if (w.owner[w.prop] === w.patched) {
-          w.owner[w.prop] = w.original;
-        }
+        if (w.owner[w.prop] === w.patched) w.owner[w.prop] = w.original;
       } catch (e) {}
     }
-    wrappers = [];
   }
 
   function teardown() {
