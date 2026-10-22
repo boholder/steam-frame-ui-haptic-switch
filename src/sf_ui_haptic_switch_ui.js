@@ -2,7 +2,7 @@
  *
  * Appends a single "Controller UI Haptic" switch to the end of the Quick
  * Settings tab. Flipping it writes `localStorage['sf_ui_haptic_switch']`
- * ('0'/'1') and then notifies the daemon through the __sfUiHapticSwitchSend
+ * (true/false) and then notifies the daemon through the __sfUiHapticSwitchSend
  * binding. The daemon persists the value and pushes it to the SteamVR
  * dashboard pages; the gate script in every page reads the flag at call time.
  * The daemon never writes back to :8080, so there is no echo and no pending
@@ -57,7 +57,7 @@
   }
 
   function writeEnabled(on) {
-    try { localStorage.setItem(KEY, on ? '1' : '0'); } catch (e) {}
+    try { localStorage.setItem(KEY, on ? 'true' : 'false'); } catch (e) {}
   }
 
   /* Notify the daemon. The value it reads from localStorage is authoritative;

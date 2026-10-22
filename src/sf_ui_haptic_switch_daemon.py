@@ -481,10 +481,6 @@ def storage_value_to_enabled(value: str | None) -> bool:
     return not (value == "0" or value == "false")
 
 
-def storage_value_of(enabled: bool) -> str:
-    return "1" if enabled else "0"
-
-
 def parse_binding_message(payload: str) -> dict[str, typing.Any] | None:
     """Parse a binding payload.
 
@@ -919,7 +915,7 @@ class Daemon:
         if session.is_ui:
             session.start_handshake()
         if session.vr:
-            self._push_state_to_session(session)
+            self._push_state_to(session)
         if self._can_read_local_storage_flag(session) and not self.steam_synced:
             self._sync_enabled_from_steam_client()
 
@@ -983,7 +979,7 @@ class Daemon:
         if session.vr:
             # A Dashboard page reloaded: its localStorage may have been
             # recreated, so put the current value back immediately.
-            self._push_state_to_session(session)
+            self._push_state_to(session)
         try:
             self._inject_into_current_document(session)
         except Exception as e:
@@ -1063,9 +1059,9 @@ class Daemon:
     def _apply_enabled_and_push_to_vr(self, enabled: bool, source: str) -> None:
         if self._persist_enabled_change(enabled):
             if source == "switch":
-                log("switch -> %s" % storage_value_of(enabled))
+                log("switch -> %s" % enabled)
             else:
-                _debug("state <- :8080 %s" % storage_value_of(enabled))
+                _debug("state <- :8080 %s" % enabled)
         # Synced only when the write stuck and the QAM agrees with us.
         self.steam_synced = self.enabled == enabled
         self._push_state_to_all_vr_sessions()
@@ -1088,12 +1084,12 @@ class Daemon:
     def _push_state_to_all_vr_sessions(self) -> None:
         for session in list(self.sessions.values()):
             if session.vr:
-                self._push_state_to_session(session)
+                self._push_state_to(session)
 
-    def _push_state_to_session(self, session: Session) -> None:
-        value = storage_value_of(self.enabled)
+    def _push_state_to(self, session: Session) -> None:
+        value = json.dumps(self.enabled)
         try:
-            session.evaluate("localStorage.setItem(%s, %s)" % (json.dumps(KEY), json.dumps(value)))
+            session.evaluate("localStorage.setItem(%s, %s)" % (json.dumps(KEY), value))
             _debug("push -> %s %s" % (session.title, value))
         except Exception as e:
             # A reload may have invalidated the context. Target events will

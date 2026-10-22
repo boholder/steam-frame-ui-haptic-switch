@@ -24,10 +24,6 @@ class FlagTests(unittest.TestCase):
         for value in ("0", "false"):
             self.assertFalse(d.storage_value_to_enabled(value), value)
 
-    def test_storage_value(self):
-        self.assertEqual(d.storage_value_of(True), "1")
-        self.assertEqual(d.storage_value_of(False), "0")
-
 
 class PayloadTests(unittest.TestCase):
     def test_hello(self):
@@ -433,6 +429,20 @@ class StateWriteTests(unittest.TestCase):
 
             self.assertFalse(daemon.enabled)
             self.assertTrue(daemon.steam_synced)
+
+
+class PushStateTests(unittest.TestCase):
+    def test_push_writes_a_boolean_literal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            daemon = d.Daemon(8080, 8087, {"gate": "g", "ui": "u"}, os.path.join(tmp, "state.json"))
+            for enabled, literal in ((True, "true"), (False, "false")):
+                daemon.enabled = enabled
+                session = RecordingSession([], {})
+
+                daemon._push_state_to_session(session)
+
+                expressions = [expr for expr, _ in session.evaluations]
+                self.assertEqual(expressions, [f'localStorage.setItem("{d.KEY}", {literal})'])
 
 
 class StatusTests(unittest.TestCase):

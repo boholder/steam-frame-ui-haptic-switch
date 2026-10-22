@@ -65,6 +65,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn("sf_ui_haptic_switch", t)
         self.assertIn("Controller UI Haptic", t)
         self.assertIn("localStorage.setItem", t)
+        self.assertIn("localStorage.setItem(KEY, on ? 'true' : 'false')", t)
 
     def test_ui_notifies_the_daemon(self):
         t = read(UI)
