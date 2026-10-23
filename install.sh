@@ -48,6 +48,19 @@ step "3/4  Enable the SteamVR Dashboard debug port by changing config"
 # --------------------------------------------------------------------------
 # Only touches VRWebHelper.DebuggerEnabled; other keys such as
 # driver_deckard.showDevTools are left alone.
+#
+# Older installs ran this helper as root, leaving a root-owned .bak that the
+# desktop user can no longer overwrite. Clear it before the helper runs.
+if [ -f "$CFG" ] && [ -e "$CFG.bak" ] && ! as_user test -w "$CFG.bak"; then
+  owner="$(stat -c '%U' "$CFG.bak" 2>/dev/null || printf 'another user')"
+  if [ "$(id -u)" -eq 0 ]; then
+    warn "found old $owner-owned backup $CFG.bak; removing it so the user-level install can write a fresh one"
+    rm -f "$CFG.bak"
+  else
+    die "$CFG.bak is owned by $owner and cannot be overwritten; remove it first: sudo rm -f $CFG.bak"
+  fi
+fi
+
 if [ -f "$CFG" ]; then had_cfg=1; else had_cfg=0; fi
 if as_user python3 "$SRC/sf_ui_haptic_switch_settings.py" --enable "$CFG"; then
   if [ "$had_cfg" -eq 1 ]; then
@@ -122,6 +135,6 @@ journalctl --user-unit sf-ui-haptic-switch.service -f
 - show switch state and endpoint status
 python3 $SRC/sf_ui_haptic_switch_daemon.py --status
 - uninstall
-sudo ./uninstall.sh
+./uninstall.sh
 ────────────────────────────────────────────────────────────
 EOF

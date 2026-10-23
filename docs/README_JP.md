@@ -23,8 +23,8 @@ Steam Frame では、コントローラーの仮想カーソルが UI ボタン�
 # Steam Frame 上で実行
 git clone "https://github.com/<owner>/steam-frame-ui-haptic-switch.git"
 cd steam-frame-ui-haptic-switch
-sudo ./install.sh
-sudo ./uninstall.sh
+./install.sh
+./uninstall.sh
 ```
 
 `install.sh` の実行後、Dashboard がデバッグエンドポイントを公開するように SteamVR を一度再起動してください。daemon は自動的に再試行するため、再インストールは不要です。
@@ -78,7 +78,7 @@ daemon は `:8080` から値を読み戻し、`~/.local/state/sf-ui-haptic-switc
 ~/.config/openvr/config/steamvr.vrsettings            VRWebHelper.DebuggerEnabled
 ```
 
-service は SteamVR 自体がユーザーサービスであるため、**ユーザー** unit（`systemctl --user`）です。`steamvr.service` の後に起動し、`PartOf=steamvr.service` により SteamVR と一緒に停止・再起動します。`install.sh` は unit を書き込み、`steamvr.service.wants` シンボリックリンクを作成します。`uninstall.sh` はその両方を削除します。`sudo` で実行してもデスクトップユーザーとして動作します（`steamos` 以外の場合は `sudo SF_USER=<user> ./install.sh` で上書き）。
+service は SteamVR 自体がユーザーサービスであるため、**ユーザー** unit（`systemctl --user`）です。`steamvr.service` の後に起動し、`PartOf=steamvr.service` により SteamVR と一緒に停止・再起動します。`install.sh` は unit を書き込み、`steamvr.service.wants` シンボリックリンクを作成します。`uninstall.sh` はその両方を削除します。
 
 service は checkout から `src/sf_ui_haptic_switch_daemon.py` を直接実行します。checkout を移動・削除した場合は再インストールが必要です。
 

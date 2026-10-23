@@ -32,8 +32,8 @@ only the button enter/leave effects are gated.
 # run it on your Steam Frame
 git clone "https://github.com/<owner>/steam-frame-ui-haptic-switch.git"
 cd steam-frame-ui-haptic-switch
-sudo ./install.sh
-sudo ./uninstall.sh
+./install.sh
+./uninstall.sh
 ```
 
 After `install.sh`, restart SteamVR once so the Dashboard exposes its debugging
@@ -102,9 +102,7 @@ Installed layout:
 The service is a **user** unit (`systemctl --user`), because SteamVR is a user
 service. It is ordered after `steamvr.service` and `PartOf=steamvr.service`, so
 it starts with SteamVR and stops or restarts with it. `install.sh` writes the
-unit and creates the `steamvr.service.wants` symlink; `uninstall.sh` removes
-both. It runs as the desktop user even when invoked through `sudo`; override
-with `sudo SF_USER=<user> ./install.sh` if that user is not `steamos`.
+unit and creates the `steamvr.service.wants` symlink; `uninstall.sh` removes both.
 
 The service executes `src/sf_ui_haptic_switch_daemon.py` directly from the
 checkout. Moving or deleting the checkout requires a reinstall.

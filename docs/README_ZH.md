@@ -23,8 +23,8 @@
 # 在 Steam Frame 上运行
 git clone "https://github.com/<owner>/steam-frame-ui-haptic-switch.git"
 cd steam-frame-ui-haptic-switch
-sudo ./install.sh
-sudo ./uninstall.sh
+./install.sh
+./uninstall.sh
 ```
 
 运行 `install.sh` 后，重启一次 SteamVR，让 Dashboard 暴露调试端点。daemon 会自动重试，无需重新安装。
@@ -78,7 +78,7 @@ daemon 会从 `:8080` 读回该值，持久化到 `~/.local/state/sf-ui-haptic-s
 ~/.config/openvr/config/steamvr.vrsettings            VRWebHelper.DebuggerEnabled
 ```
 
-service 是**用户级** unit（`systemctl --user`），因为 SteamVR 本身是用户服务。它排在 `steamvr.service` 之后，并设置 `PartOf=steamvr.service`，因此随 SteamVR 启动、停止和重启。`install.sh` 写入 unit 并创建 `steamvr.service.wants` 软链接；`uninstall.sh` 会把两者都删除。即使用 `sudo` 运行，安装也会以桌面用户身份执行；如果不是 `steamos`，请用 `sudo SF_USER=<user> ./install.sh` 覆盖。
+service 是**用户级** unit（`systemctl --user`），因为 SteamVR 本身是用户服务。它排在 `steamvr.service` 之后，并设置 `PartOf=steamvr.service`，因此随 SteamVR 启动、停止和重启。`install.sh` 写入 unit 并创建 `steamvr.service.wants` 软链接；`uninstall.sh` 会把两者都删除。
 
 service 直接从 checkout 运行 `src/sf_ui_haptic_switch_daemon.py`。移动或删除 checkout 后需要重新安装。
 

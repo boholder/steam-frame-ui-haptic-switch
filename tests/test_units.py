@@ -68,6 +68,13 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIn("steamvr.vrsettings", lib)
         self.assertIn("steamvr.service.wants", lib)
 
+    def test_install_clears_a_stale_root_owned_backup(self):
+        t = read(os.path.join(ROOT, "install.sh"))
+        self.assertIn('"$CFG.bak"', t)
+        self.assertIn("as_user test -w", t)
+        self.assertIn('rm -f "$CFG.bak"', t)
+        self.assertIn("sudo rm -f $CFG.bak", t)
+
     def test_install_does_not_copy_the_repo(self):
         t = read(os.path.join(ROOT, "install.sh"))
         self.assertNotIn("copy sf_", t)
