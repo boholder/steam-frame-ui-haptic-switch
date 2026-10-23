@@ -60,26 +60,29 @@ daemon は `:8080` から値を読み戻し、`~/.local/state/sf-ui-haptic-switc
 
 | パス | 役割 |
 | --- | --- |
-| `install.sh` / `uninstall.sh` | checkout 内で実行；unit をインストールし、リポジトリはコピーしない |
+| `install.sh` / `uninstall.sh` | checkout 内で実行；ユーザー unit と SteamVR リンクをインストール/削除し、リポジトリはコピーしない |
 | `src/sf_ui_haptic_switch_gate.js` | 2 つのハプティックブリッジをラップ；2 つのボタン効果をゲート |
 | `src/sf_ui_haptic_switch_ui.js` | スイッチを描画し、daemon に通知 |
 | `src/sf_ui_haptic_switch_daemon.py` | 常駐 daemon と CDP トランスポート（Python 3、標準ライブラリのみ） |
 | `src/sf_ui_haptic_switch_settings.py` | install/uninstall が使う安全な `steamvr.vrsettings` エディター |
-| `installation_lib.sh` | install/uninstall 共有の定数と出力ヘルパー |
-| `src/sf-ui-haptic-switch.service` | systemd daemon unit |
+| `installation_lib.sh` | install/uninstall 共有のパス、ユーザー/systemd ヘルパー、出力ヘルパー |
+| `src/sf-ui-haptic-switch.service` | ユーザー systemd daemon unit（`steamvr.service` と連動） |
 
 インストール後のレイアウト：
 
 ```text
 <this checkout>/                                      ソースとスクリプト（インプレースでインストール）
-/etc/systemd/system/sf-ui-haptic-switch.service       daemon unit、checkout を指す
-/home/steamos/.local/state/sf-ui-haptic-switch/       永続化されたスイッチ値
+~/.config/systemd/user/sf-ui-haptic-switch.service    ユーザー daemon unit、checkout を指す
+~/.config/systemd/user/steamvr.service.wants/         有効化リンク：SteamVR と一緒に起動
+~/.local/state/sf-ui-haptic-switch/                   永続化されたスイッチ値
 ~/.config/openvr/config/steamvr.vrsettings            VRWebHelper.DebuggerEnabled
 ```
 
+service は SteamVR 自体がユーザーサービスであるため、**ユーザー** unit（`systemctl --user`）です。`steamvr.service` の後に起動し、`PartOf=steamvr.service` により SteamVR と一緒に停止・再起動します。`install.sh` は unit を書き込み、`steamvr.service.wants` シンボリックリンクを作成します。`uninstall.sh` はその両方を削除します。`sudo` で実行してもデスクトップユーザーとして動作します（`steamos` 以外の場合は `sudo SF_USER=<user> ./install.sh` で上書き）。
+
 service は checkout から `src/sf_ui_haptic_switch_daemon.py` を直接実行します。checkout を移動・削除した場合は再インストールが必要です。
 
-`install.sh` はインプレースで実行されます：`HERE` をこの checkout に設定し、`installation_lib.sh`（`DEST="$HERE"` を設定）を source し、unit の `INSTALLATION_PATH` を checkout パスに置換して書き込みます。リポジトリのファイルはコピーしません。`uninstall.sh` は unit、状態、`VRWebHelper.DebuggerEnabled` を削除しますが、checkout は残します。
+`install.sh` はインプレースで実行されます：`HERE` をこの checkout に設定し、`installation_lib.sh`（`DEST="$HERE"` を設定）を source し、unit の `INSTALLATION_PATH` を checkout パスに置換して書き込みます。リポジトリのファイルはコピーしません。`uninstall.sh` は unit、シンボリックリンク、状態、`VRWebHelper.DebuggerEnabled` を削除しますが、checkout は残します。
 
 ## 制限
 
@@ -110,8 +113,8 @@ sudo ./scripts/aggressive-ui-haptics.sh revert    # 元に戻す
 ## ログと状態
 
 ```bash
-journalctl -u sf-ui-haptic-switch.service -f
-systemctl status sf-ui-haptic-switch.service
+journalctl --user-unit sf-ui-haptic-switch.service -f
+systemctl --user status sf-ui-haptic-switch.service
 python3 src/sf_ui_haptic_switch_daemon.py --status
 ```
 

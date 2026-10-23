@@ -60,26 +60,29 @@ daemon 会从 `:8080` 读回该值，持久化到 `~/.local/state/sf-ui-haptic-s
 
 | 路径 | 用途 |
 | --- | --- |
-| `install.sh` / `uninstall.sh` | 在 checkout 中运行；安装 unit，不复制仓库 |
+| `install.sh` / `uninstall.sh` | 在 checkout 中运行；安装/删除用户级 unit 及其 SteamVR 软链接，不复制仓库 |
 | `src/sf_ui_haptic_switch_gate.js` | 包装两个触觉桥接接口；拦截两种按钮效果 |
 | `src/sf_ui_haptic_switch_ui.js` | 渲染开关并通知 daemon |
 | `src/sf_ui_haptic_switch_daemon.py` | 常驻 daemon 与 CDP 传输（Python 3，仅标准库） |
 | `src/sf_ui_haptic_switch_settings.py` | 供 install/uninstall 使用的安全 `steamvr.vrsettings` 编辑器 |
-| `installation_lib.sh` | install/uninstall 共享常量与输出辅助函数 |
-| `src/sf-ui-haptic-switch.service` | systemd daemon unit |
+| `installation_lib.sh` | install/uninstall 共享路径、用户/systemd 辅助函数与输出辅助函数 |
+| `src/sf-ui-haptic-switch.service` | 用户级 systemd daemon unit（随 `steamvr.service` 启停） |
 
 安装后的布局：
 
 ```text
 <this checkout>/                                      源码与脚本（就地安装）
-/etc/systemd/system/sf-ui-haptic-switch.service       daemon unit，指向 checkout
-/home/steamos/.local/state/sf-ui-haptic-switch/       持久化的开关值
+~/.config/systemd/user/sf-ui-haptic-switch.service    用户级 daemon unit，指向 checkout
+~/.config/systemd/user/steamvr.service.wants/         启用软链接：随 SteamVR 启动
+~/.local/state/sf-ui-haptic-switch/                   持久化的开关值
 ~/.config/openvr/config/steamvr.vrsettings            VRWebHelper.DebuggerEnabled
 ```
 
+service 是**用户级** unit（`systemctl --user`），因为 SteamVR 本身是用户服务。它排在 `steamvr.service` 之后，并设置 `PartOf=steamvr.service`，因此随 SteamVR 启动、停止和重启。`install.sh` 写入 unit 并创建 `steamvr.service.wants` 软链接；`uninstall.sh` 会把两者都删除。即使用 `sudo` 运行，安装也会以桌面用户身份执行；如果不是 `steamos`，请用 `sudo SF_USER=<user> ./install.sh` 覆盖。
+
 service 直接从 checkout 运行 `src/sf_ui_haptic_switch_daemon.py`。移动或删除 checkout 后需要重新安装。
 
-`install.sh` 就地运行：把 `HERE` 设为当前 checkout，source `installation_lib.sh`（其中 `DEST="$HERE"`），并把 unit 中的 `INSTALLATION_PATH` 替换为 checkout 路径。它不复制任何仓库文件。`uninstall.sh` 会删除 unit、状态和 `VRWebHelper.DebuggerEnabled`，但保留 checkout。
+`install.sh` 就地运行：把 `HERE` 设为当前 checkout，source `installation_lib.sh`（其中 `DEST="$HERE"`），并把 unit 中的 `INSTALLATION_PATH` 替换为 checkout 路径。它不复制任何仓库文件。`uninstall.sh` 会删除 unit、软链接、状态和 `VRWebHelper.DebuggerEnabled`，但保留 checkout。
 
 ## 限制
 
@@ -110,8 +113,8 @@ sudo ./scripts/aggressive-ui-haptics.sh revert    # 撤销
 ## 日志与状态
 
 ```bash
-journalctl -u sf-ui-haptic-switch.service -f
-systemctl status sf-ui-haptic-switch.service
+journalctl --user-unit sf-ui-haptic-switch.service -f
+systemctl --user status sf-ui-haptic-switch.service
 python3 src/sf_ui_haptic_switch_daemon.py --status
 ```
 

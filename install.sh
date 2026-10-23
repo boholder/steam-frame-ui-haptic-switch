@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 # Steam Frame "Controller UI Haptic" switch — install script (resident daemon)
-#
-#   sudo ./install.sh
-#
-#   1. Check privileges
-#   2. Install the systemd unit (points at this checkout; no file copies)
+# 
+#   1. Check the desktop user and remove a legacy system-wide unit
+#   2. Install the user unit and the steamvr.service.wants symlink
 #   3. Open SteamVR's vrwebhelper debugging port
 #   4. Start the daemon and confirm it stays up
 set -euo pipefail
@@ -18,22 +16,32 @@ LIB="$HERE/installation_lib.sh"
 . "$LIB"
 
 # --------------------------------------------------------------------------
-step "1/4  Check privilege"
+step "1/4  Check the desktop user"
 # --------------------------------------------------------------------------
-[ "$(id -u)" -eq 0 ] || die "root required: sudo $0"
-ok "running as root"
+require_install_user
+[ -d "$SF_RUNTIME_DIR" ] \
+  || die "the user systemd instance for $SF_USER is not running ($SF_RUNTIME_DIR missing); log in as $SF_USER first"
+ok "installing for $SF_USER ($SF_HOME)"
+
+# The previous release installed a system-wide unit. Running both would make
+# two daemons inject into the same pages, so migrate it away first.
+remove_legacy_unit \
+  || die "legacy system unit found; remove it first: sudo systemctl disable --now $SERVICE && sudo rm $LEGACY_UNIT_DIR/$SERVICE"
 
 # --------------------------------------------------------------------------
-step "2/4  Install the systemd unit"
+step "2/4  Install the user unit and the SteamVR wants link"
 # --------------------------------------------------------------------------
 # The checkout is the installation directory: nothing is copied; the unit
 # points straight at $SRC.
-install -m 0644 "$SRC/$SERVICE" "$UNIT_DIR/$SERVICE"
-sed -i "s|INSTALLATION_PATH|$DEST|g" "$UNIT_DIR/$SERVICE"
-if grep -q 'INSTALLATION_PATH' "$UNIT_DIR/$SERVICE"; then
+as_user mkdir -p "$USER_UNIT_DIR" "$STEAMVR_WANTS_DIR"
+as_user install -m 0644 "$SRC/$SERVICE" "$USER_UNIT_DIR/$SERVICE"
+as_user sed -i "s|INSTALLATION_PATH|$DEST|g" "$USER_UNIT_DIR/$SERVICE"
+if grep -q 'INSTALLATION_PATH' "$USER_UNIT_DIR/$SERVICE"; then
   die "INSTALLATION_PATH in the unit was not replaced"
 fi
-ok "wrote $UNIT_DIR/$SERVICE (pointing at $SRC)"
+as_user ln -sfn "$USER_UNIT_DIR/$SERVICE" "$UNIT_LINK"
+ok "wrote $USER_UNIT_DIR/$SERVICE (pointing at $SRC)"
+ok "linked $UNIT_LINK -> $USER_UNIT_DIR/$SERVICE"
 
 # --------------------------------------------------------------------------
 step "3/4  Enable the SteamVR Dashboard debug port by changing config"
@@ -41,7 +49,7 @@ step "3/4  Enable the SteamVR Dashboard debug port by changing config"
 # Only touches VRWebHelper.DebuggerEnabled; other keys such as
 # driver_deckard.showDevTools are left alone.
 if [ -f "$CFG" ]; then had_cfg=1; else had_cfg=0; fi
-if python3 "$SRC/sf_ui_haptic_switch_settings.py" --enable "$CFG"; then
+if as_user python3 "$SRC/sf_ui_haptic_switch_settings.py" --enable "$CFG"; then
   if [ "$had_cfg" -eq 1 ]; then
     ok "VRWebHelper.DebuggerEnabled = true (backup: $CFG.bak)"
   else
@@ -64,18 +72,17 @@ fi
 # --------------------------------------------------------------------------
 step "4/4  Start the daemon"
 # --------------------------------------------------------------------------
-systemctl daemon-reload
-systemctl enable "$SERVICE" >/dev/null
-systemctl restart "$SERVICE"
+userctl daemon-reload
+userctl restart "$SERVICE"
 
 for _ in $(seq 1 20); do
-  systemctl is-active --quiet "$SERVICE" && break
+  userctl is-active --quiet "$SERVICE" && break
   sleep 0.5
 done
 
-if ! systemctl is-active --quiet "$SERVICE"; then
+if ! userctl is-active --quiet "$SERVICE"; then
   bad "$SERVICE did not start; recent logs:"
-  journalctl -u "$SERVICE" -n 30 --no-pager -o cat | sed 's/^/     /' || true
+  journalctl --user-unit "$SERVICE" -n 30 --no-pager -o cat | sed 's/^/     /' || true
   exit 1
 fi
 ok "daemon is running"
@@ -83,7 +90,7 @@ ok "daemon is running"
 sleep 1
 check_endpoint() {
   local port="$1" owner="$2"
-  if journalctl -u "$SERVICE" -n 50 --no-pager -o cat 2>/dev/null \
+  if journalctl --user-unit "$SERVICE" -n 50 --no-pager -o cat 2>/dev/null \
        | grep -q "attached endpoint :$port"; then
     ok "connected to :$port"
   else
@@ -98,6 +105,10 @@ cat <<EOF
 ────────────────────────────────────────────────────────────
 Installation complete
 
+The daemon is a user service and follows SteamVR: it starts with
+steamvr.service and stops when SteamVR stops. Its unit lives in
+$USER_UNIT_DIR, with an enable link in $STEAMVR_WANTS_DIR.
+
 Put on the headset, open the Quick Settings menu, and switch to the
 Settings tab. The "Controller UI Haptic" switch should appear at the
 bottom. Turn it off and the controller cursor stops buzzing when it
@@ -107,7 +118,7 @@ If :8087 was just configured, restart SteamVR once so the Dashboard
 debug port appears.
 
 - view daemon logs
-journalctl -u sf-ui-haptic-switch.service -f
+journalctl --user-unit sf-ui-haptic-switch.service -f
 - show switch state and endpoint status
 python3 $SRC/sf_ui_haptic_switch_daemon.py --status
 - uninstall

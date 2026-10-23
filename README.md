@@ -81,22 +81,30 @@ reconnect, and whenever a page gets a new execution context.
 
 | Path | Role |
 | --- | --- |
-| `install.sh` / `uninstall.sh` | run in the checkout; installs the unit, does not copy the repo |
+| `install.sh` / `uninstall.sh` | run in the checkout; install/remove the user unit and its SteamVR link, does not copy the repo |
 | `src/sf_ui_haptic_switch_gate.js` | wraps both haptic bridges; gates the two button effects |
 | `src/sf_ui_haptic_switch_ui.js` | renders the switch and notifies the daemon |
 | `src/sf_ui_haptic_switch_daemon.py` | resident daemon and CDP transport (Python 3, stdlib only) |
 | `src/sf_ui_haptic_switch_settings.py` | safe `steamvr.vrsettings` editor used by install/uninstall |
-| `installation_lib.sh` | shared install/uninstall constants and output helpers |
-| `src/sf-ui-haptic-switch.service` | systemd daemon unit |
+| `installation_lib.sh` | shared install/uninstall paths, user/systemd helpers, and output helpers |
+| `src/sf-ui-haptic-switch.service` | user systemd daemon unit (follows `steamvr.service`) |
 
 Installed layout:
 
 ```text
 <this checkout>/                                      source + scripts (install runs in place)
-/etc/systemd/system/sf-ui-haptic-switch.service       daemon unit, points at the checkout
-/home/steamos/.local/state/sf-ui-haptic-switch/       persisted switch value
+~/.config/systemd/user/sf-ui-haptic-switch.service    user daemon unit, points at the checkout
+~/.config/systemd/user/steamvr.service.wants/         enable link: starts the daemon with SteamVR
+~/.local/state/sf-ui-haptic-switch/                   persisted switch value
 ~/.config/openvr/config/steamvr.vrsettings            VRWebHelper.DebuggerEnabled
 ```
+
+The service is a **user** unit (`systemctl --user`), because SteamVR is a user
+service. It is ordered after `steamvr.service` and `PartOf=steamvr.service`, so
+it starts with SteamVR and stops or restarts with it. `install.sh` writes the
+unit and creates the `steamvr.service.wants` symlink; `uninstall.sh` removes
+both. It runs as the desktop user even when invoked through `sudo`; override
+with `sudo SF_USER=<user> ./install.sh` if that user is not `steamos`.
 
 The service executes `src/sf_ui_haptic_switch_daemon.py` directly from the
 checkout. Moving or deleting the checkout requires a reinstall.
@@ -104,8 +112,8 @@ checkout. Moving or deleting the checkout requires a reinstall.
 `install.sh` runs in place: it sets `HERE` to this checkout, sources
 `installation_lib.sh` (which sets `DEST="$HERE"`), and writes the unit with
 `INSTALLATION_PATH` replaced by the checkout path. It copies no repository
-files. `uninstall.sh` removes the unit, state and `VRWebHelper.DebuggerEnabled`,
-but leaves the checkout.
+files. `uninstall.sh` removes the unit, its symlink, state and
+`VRWebHelper.DebuggerEnabled`, but leaves the checkout.
 
 ## Limitations
 
@@ -143,8 +151,8 @@ sudo ./scripts/aggressive-ui-haptics.sh revert    # undo
 ## Logs and status
 
 ```bash
-journalctl -u sf-ui-haptic-switch.service -f
-systemctl status sf-ui-haptic-switch.service
+journalctl --user-unit sf-ui-haptic-switch.service -f
+systemctl --user status sf-ui-haptic-switch.service
 python3 src/sf_ui_haptic_switch_daemon.py --status
 ```
 

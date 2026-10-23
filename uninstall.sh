@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # Steam Frame "Controller UI Haptic" switch — uninstall script
-#
-#   sudo ./uninstall.sh
-#
+# 
 # Stop the daemon (SIGTERM removes the injected UI/wrappers best-effort),
-# remove the :8087 debug port setting, and clean up the unit and state.
+# remove the steamvr.service.wants link and the user unit, remove the :8087
+# debug port setting, and clean up the state.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,19 +15,29 @@ LIB="$HERE/installation_lib.sh"
 
 SRC="$HERE/src"
 
-[ "$(id -u)" -eq 0 ] || die "root required: sudo $0"
-
 # --------------------------------------------------------------------------
 step "1/4  Stop the daemon"
 # --------------------------------------------------------------------------
-systemctl disable "$SERVICE" 2>/dev/null || true
-systemctl stop "$SERVICE" 2>/dev/null || true
-# SIGTERM lets the daemon tear down both endpoints best-effort.
-sleep 1
-if systemctl is-active --quiet "$SERVICE"; then
-  die "$SERVICE is still running; aborting uninstall so the daemon cannot keep injecting"
+require_install_user
+
+# A unit from the previous system-wide install may still be running.
+remove_legacy_unit \
+  || die "legacy system unit found; remove it first: sudo systemctl disable --now $SERVICE && sudo rm $LEGACY_UNIT_DIR/$SERVICE"
+
+if [ -d "$SF_RUNTIME_DIR" ]; then
+  userctl disable --now "$SERVICE" >/dev/null 2>&1 || true
+  # SIGTERM lets the daemon tear down both endpoints best-effort.
+  sleep 1
+  state="$(userctl show "$SERVICE" -p ActiveState --value 2>/dev/null)" || state="unknown"
+  case "$state" in
+    active | activating | deactivating | reloading | unknown)
+      die "$SERVICE is not confirmed stopped (state: $state); aborting uninstall so the daemon cannot keep injecting"
+      ;;
+  esac
+  ok "stopped $SERVICE"
+else
+  warn "the user systemd instance for $SF_USER is not running; skipping the stop"
 fi
-ok "stopped $SERVICE"
 
 # --------------------------------------------------------------------------
 step "2/4  Disable the SteamVR Dashboard debug port by changing config"
@@ -45,19 +54,23 @@ if [ ! -f "$SETTINGS" ]; then
   warn "settings helper not found; skipping config cleanup"
 elif [ ! -f "$CFG" ]; then
   warn "$CFG not found; skipping"
-elif python3 "$SETTINGS" --disable "$CFG"; then
+elif as_user python3 "$SETTINGS" --disable "$CFG"; then
   ok "removed VRWebHelper.DebuggerEnabled from $CFG (.bak kept)"
 else
   warn "could not modify $CFG; remove VRWebHelper.DebuggerEnabled manually"
 fi
 
 # --------------------------------------------------------------------------
-step "3/4  Remove the unit and state"
+step "3/4  Remove the SteamVR wants link, the unit and the state"
 # --------------------------------------------------------------------------
-rm -f "$UNIT_DIR/$SERVICE"
-systemctl daemon-reload
-systemctl reset-failed "$SERVICE" 2>/dev/null || true
-ok "removed $UNIT_DIR/$SERVICE"
+as_user rm -f "$UNIT_LINK"
+as_user rm -f "$USER_UNIT_DIR/$SERVICE"
+if [ -d "$SF_RUNTIME_DIR" ]; then
+  userctl daemon-reload
+  userctl reset-failed "$SERVICE" 2>/dev/null || true
+fi
+ok "removed $UNIT_LINK"
+ok "removed $USER_UNIT_DIR/$SERVICE"
 
 if [ -d "$STATE_DIR" ]; then
   rm -rf "$STATE_DIR"

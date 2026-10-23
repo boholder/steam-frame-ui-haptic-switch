@@ -12,16 +12,25 @@ def read(path):
 
 
 class UnitFileTests(unittest.TestCase):
-    def test_service_is_a_restarting_daemon(self):
+    def test_service_follows_steamvr_as_a_user_unit(self):
         t = read(os.path.join(SRC, "sf-ui-haptic-switch.service"))
         unit, _, service = t.partition("[Service]")
         self.assertIn("Type=simple", service)
-        self.assertIn("User=steamos", service)
+        # A user unit must not carry User=; it runs as the desktop user.
+        self.assertNotIn("User=", service)
         self.assertIn("INSTALLATION_PATH/src/sf_ui_haptic_switch_daemon.py", service)
         self.assertIn("Restart=always", service)
         self.assertIn("RestartSec=5", service)
+        self.assertIn("Nice=10", service)
         self.assertNotIn("Type=oneshot", service)
-        self.assertIn("WantedBy=multi-user.target", t)
+        # SteamVR is a user service; the daemon shares its lifecycle.
+        self.assertIn("After=steamvr.service", unit)
+        self.assertIn("PartOf=steamvr.service", unit)
+        self.assertIn("WantedBy=steamvr.service", t)
+        self.assertNotIn("multi-user.target", t)
+        # BindsTo/Requires would start SteamVR when the daemon is started.
+        self.assertNotIn("BindsTo=", unit)
+        self.assertNotIn("Requires=", unit)
         # Start rate limiting belongs in [Unit] and must trip before the
         # window slides past the retries: RestartSec * Burst < Interval.
         self.assertIn("StartLimitIntervalSec=60", unit)
@@ -45,7 +54,9 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIn("sf_ui_haptic_switch_daemon.py", t)
         self.assertNotIn("sf_ui_haptic_switch_cdp.py", t)
         self.assertIn("installation_lib.sh", t)
-        self.assertIn("systemctl enable", t)
+        self.assertIn("userctl", t)
+        self.assertIn("ln -sfn", t)
+        self.assertNotIn("systemctl enable", t)
         self.assertNotIn("$TIMER", t)
         self.assertIn("sf_ui_haptic_switch_settings.py", t)
         self.assertIn("--enable", t)
@@ -55,6 +66,7 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIn("DebuggerEnabled", helper)
         lib = read(os.path.join(ROOT, "installation_lib.sh"))
         self.assertIn("steamvr.vrsettings", lib)
+        self.assertIn("steamvr.service.wants", lib)
 
     def test_install_does_not_copy_the_repo(self):
         t = read(os.path.join(ROOT, "install.sh"))
@@ -77,11 +89,35 @@ class ScriptContractTests(unittest.TestCase):
 
     def test_uninstall_aborts_while_the_service_is_active(self):
         t = read(os.path.join(ROOT, "uninstall.sh"))
-        self.assertIn('systemctl is-active --quiet "$SERVICE"', t)
-        self.assertIn('die "$SERVICE is still running', t)
-        self.assertLess(t.index('systemctl is-active --quiet "$SERVICE"'), t.index('rm -f "$UNIT_DIR/$SERVICE"'))
+        self.assertIn('userctl show "$SERVICE" -p ActiveState --value', t)
+        self.assertIn('die "$SERVICE is not confirmed stopped', t)
+        self.assertLess(t.index('userctl show "$SERVICE"'), t.index('rm -f "$USER_UNIT_DIR/$SERVICE"'))
         self.assertIn("pgrep -f '[v]rserver'", t)
         self.assertLess(t.index("pgrep -f '[v]rserver'"), t.index("--disable"))
+
+    def test_install_creates_and_uninstall_removes_the_steamvr_wants_link(self):
+        install = read(os.path.join(ROOT, "install.sh"))
+        uninstall = read(os.path.join(ROOT, "uninstall.sh"))
+        lib = read(os.path.join(ROOT, "installation_lib.sh"))
+        self.assertIn('STEAMVR_WANTS_DIR="$USER_UNIT_DIR/steamvr.service.wants"', lib)
+        self.assertIn('UNIT_LINK="$STEAMVR_WANTS_DIR/$SERVICE"', lib)
+        self.assertIn('ln -sfn "$USER_UNIT_DIR/$SERVICE" "$UNIT_LINK"', install)
+        self.assertIn('rm -f "$UNIT_LINK"', uninstall)
+
+    def test_install_removes_the_legacy_system_unit(self):
+        install = read(os.path.join(ROOT, "install.sh"))
+        uninstall = read(os.path.join(ROOT, "uninstall.sh"))
+        lib = read(os.path.join(ROOT, "installation_lib.sh"))
+        self.assertIn('LEGACY_UNIT_DIR="/etc/systemd/system"', lib)
+        self.assertIn("systemctl disable --now", lib)
+        self.assertIn("remove_legacy_unit", install)
+        self.assertIn("remove_legacy_unit", uninstall)
+
+    def test_scripts_run_user_systemd_as_the_desktop_user(self):
+        lib = read(os.path.join(ROOT, "installation_lib.sh"))
+        self.assertIn('SF_USER="${SF_USER:-${SUDO_USER:-steamos}}"', lib)
+        self.assertIn("runuser -u", lib)
+        self.assertIn("systemctl --user", lib)
 
     def test_uninstall_does_not_delete_the_checkout(self):
         t = read(os.path.join(ROOT, "uninstall.sh"))
@@ -95,7 +131,8 @@ class ScriptContractTests(unittest.TestCase):
     def test_uninstall_removes_the_daemon_and_the_debugger_key(self):
         t = read(os.path.join(ROOT, "uninstall.sh"))
         self.assertNotIn("$TIMER", t)
-        self.assertIn("systemctl", t)
+        self.assertIn("userctl", t)
+        self.assertIn("UNIT_LINK", t)
         self.assertIn("installation_lib.sh", t)
         self.assertIn("sf_ui_haptic_switch_settings.py", t)
         self.assertIn("--disable", t)
